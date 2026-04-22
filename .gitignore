@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+*.egg-info/
+dist/
+build/
+
+# 环境变量 & 敏感信息
+.env
+*.env
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志与数据库
+*.log
+*.db
+*.sqlite3
+
+# 测试与覆盖率
+.coverage
+htmlcov/
+.pytest_cache/
+
+# LangGraph 检查点文件（如启用持久化）
+checkpoints/
+*.checkpoint
+
+# 操作系统
+.DS_Store
+Thumbs.db
