@@ -34,7 +34,13 @@ LangDeep 是一个基于 **LangChain** 和 **LangGraph** 构建的，**注解驱
 
 ## 📦 安装
 
-### 从源码安装（推荐，当前版本）
+### PyPI 安装（最新发布版）
+
+```bash
+pip install langdeep
+```
+
+### 从源码安装（最新开发版）
 
 ```bash
 git clone https://github.com/ZChunzi/langdeep.git
