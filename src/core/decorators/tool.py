@@ -1,7 +1,10 @@
-"""Tool registration decorator."""
+"""@regist_tool decorator — registers a tool with metadata in the tool registry."""
+
 from functools import wraps
-from typing import Optional, List, Callable
+from typing import Callable, List, Optional
+
 from langchain_core.tools import tool as langchain_tool
+
 from ..registry.tool_registry import tool_registry, ToolMetadata
 
 
@@ -11,37 +14,32 @@ def regist_tool(
     category: str = "general",
     tags: Optional[List[str]] = None,
     requires_confirmation: bool = False,
-    timeout: Optional[int] = None
+    timeout: Optional[int] = None,
 ):
-    """
-    Tool registration decorator, extending LangChain's native @tool decorator
+    """Decorator that wraps a function as a LangChain tool and registers it.
 
-    Usage:
+    Usage::
+
         @regist_tool(name="weather", category="external", tags=["api"])
         def get_weather(city: str) -> str:
-            '''Get weather information for specified city'''
-            return f"{city} weather: Sunny, 22°C"
+            '''Get weather for a city.'''
+            return f"{city}: sunny, 22C"
     """
-    def decorator(func: Callable):
-        # Use LangChain native decorator to create tool
-        tool_obj = langchain_tool(func)
 
-        # Override tool name if custom name specified
+    def decorator(func: Callable):
+        tool_obj = langchain_tool(func)
         if name:
             tool_obj.name = name
-
-        # Override tool description if custom description specified
         if description:
             tool_obj.description = description
 
-        # Register to tool registry
         metadata = ToolMetadata(
             name=tool_obj.name,
             description=tool_obj.description or func.__doc__ or "",
             category=category,
             tags=tags or [],
             requires_confirmation=requires_confirmation,
-            timeout=timeout
+            timeout=timeout,
         )
         tool_registry.register(tool_obj, metadata)
 

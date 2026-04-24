@@ -1,24 +1,31 @@
-"""Workflow planner with YAML support."""
-from typing import Dict, Any, List, Optional
+"""Declarative workflow planner — loads plans from YAML/JSON and bridges to orchestrator."""
+
+import json
 from enum import Enum
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 import yaml
-import json
+
+from ..logging import get_logger
+from ..errors import TemplateNotFoundError, CircularDependencyError
+
+logger = get_logger(__name__)
 
 
 class NodeType(Enum):
-    """Node type"""
-    AGENT = "agent"          # Agent node
-    TOOL = "tool"            # Tool node
-    CONDITION = "condition"  # Conditional branch
-    PARALLEL = "parallel"    # Parallel execution
-    LOOP = "loop"            # Loop
-    HUMAN = "human"          # Human intervention
+    AGENT = "agent"
+    TOOL = "tool"
+    CONDITION = "condition"
+    PARALLEL = "parallel"
+    LOOP = "loop"
+    HUMAN = "human"
+    CUSTOM = "custom"
 
 
 @dataclass
 class WorkflowNode:
-    """Workflow node definition"""
     id: str
     type: NodeType
     name: str
@@ -27,129 +34,103 @@ class WorkflowNode:
     condition: Optional[str] = None
     retry: int = 0
     timeout: int = 60
+    priority: int = 0
 
 
 class WorkflowPlanner:
-    """
-    Workflow planner
-
-    Supports two planning modes:
-    1. Declarative: Load predefined workflows from YAML/JSON files
-    2. Dynamic: Generate execution plans dynamically by LLM based on user requests
-    """
+    """Loads predefined workflows and can bridge them to the orchestrator."""
 
     def __init__(self, workflow_dir: str = "workflows"):
-        self.workflow_dir = workflow_dir
+        self._workflow_dir = workflow_dir
         self._workflows: Dict[str, List[WorkflowNode]] = {}
 
     def load_workflow(self, name: str) -> List[WorkflowNode]:
-        """Load workflow definition from file"""
         if name in self._workflows:
             return self._workflows[name]
 
-        workflow_file = f"{self.workflow_dir}/{name}.yaml"
-        with open(workflow_file, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f)
+        base = Path(self._workflow_dir)
+        for ext in (".yaml", ".yml", ".json"):
+            wf_file = base / f"{name}{ext}"
+            if wf_file.exists():
+                with open(wf_file, encoding="utf-8") as f:
+                    data = yaml.safe_load(f) if ext != ".json" else json.load(f)
+                nodes = self._parse_nodes(data)
+                self._workflows[name] = nodes
+                logger.info("Workflow loaded", extra={"name": name, "file": str(wf_file), "node_count": len(nodes)})
+                return nodes
 
-        nodes = []
-        for node_data in data.get("nodes", []):
-            node = WorkflowNode(
-                id=node_data["id"],
-                type=NodeType(node_data["type"]),
-                name=node_data["name"],
-                config=node_data.get("config", {}),
-                depends_on=node_data.get("depends_on", []),
-                condition=node_data.get("condition"),
-                retry=node_data.get("retry", 0),
-                timeout=node_data.get("timeout", 60)
-            )
-            nodes.append(node)
-
-        self._workflows[name] = nodes
-        return nodes
-
-    def plan_dynamically(
-        self,
-        user_request: str,
-        available_agents: List[str],
-        llm_model: str
-    ) -> List[WorkflowNode]:
-        """
-        Dynamic planning: Generate execution plan by LLM based on user request
-        """
-        from ..registry.model_registry import model_registry
-        from ..prompt.prompt_loader import prompt_loader
-
-        llm = model_registry.get_model(llm_model)
-        planner_prompt = prompt_loader.load_prompt("dynamic_planner")
-
-        response = llm.invoke(
-            planner_prompt.format_messages(
-                user_request=user_request,
-                available_agents=available_agents
-            )
+        raise TemplateNotFoundError(
+            f"Workflow '{name}' not found",
+            context={"search_dir": self._workflow_dir, "tried_extensions": [".yaml", ".yml", ".json"]},
         )
 
-        # Parse LLM-generated plan
-        plan = self._parse_llm_plan(response.content)
+    def list_templates(self) -> List[str]:
+        base = Path(self._workflow_dir)
+        if not base.is_dir():
+            return []
+        templates = []
+        for ext in ("*.yaml", "*.yml", "*.json"):
+            for fpath in sorted(base.glob(ext)):
+                templates.append(fpath.stem)
+        return templates
+
+    def to_plan_dicts(self, nodes: List[WorkflowNode], user_input: str = "") -> List[Dict[str, Any]]:
+        plan = []
+        for node in nodes:
+            task = {
+                "id": node.id,
+                "name": node.name,
+                "depends_on": node.depends_on,
+                "status": "pending",
+                "priority": node.priority,
+            }
+            if node.type == NodeType.CUSTOM:
+                task["node"] = node.name
+                task["config"] = node.config
+            else:
+                task["agent"] = node.name
+                task["tools"] = node.config.get("tools", [])
+            for key, value in list(task.items()):
+                if isinstance(value, str) and "{{ user_input }}" in value:
+                    task[key] = value.replace("{{ user_input }}", user_input)
+            plan.append(task)
         return plan
 
-    def _parse_llm_plan(self, content: str) -> List[WorkflowNode]:
-        """Parse LLM-generated plan (expects JSON format)"""
-        try:
-            data = json.loads(content)
-            nodes = []
-            for node_data in data.get("steps", []):
-                node = WorkflowNode(
-                    id=node_data["id"],
-                    type=NodeType(node_data["type"]),
-                    name=node_data["name"],
-                    config=node_data.get("config", {}),
-                    depends_on=node_data.get("depends_on", []),
-                    condition=node_data.get("condition")
-                )
-                nodes.append(node)
-            return nodes
-        except json.JSONDecodeError:
-            # Fallback handling
-            return []
-
     def topological_sort(self, nodes: List[WorkflowNode]) -> List[List[WorkflowNode]]:
-        """
-        Topological sort - determine execution order and identify parallel executable node groups
-        """
-        # Build dependency graph
         graph = {node.id: set(node.depends_on) for node in nodes}
-
-        # Kahn's algorithm for topological sort
         result = []
-        remaining = set(node.id for node in nodes)
-
+        remaining = {node.id for node in nodes}
         while remaining:
-            # Find all nodes with zero in-degree (can execute in parallel)
             ready = [
                 node for node in nodes
                 if node.id in remaining and not graph[node.id].intersection(remaining)
             ]
-
             if not ready:
-                # Cycle detected
-                raise ValueError("Workflow has circular dependency")
-
+                raise CircularDependencyError(
+                    "Workflow contains circular dependencies",
+                    context={"remaining_nodes": list(remaining)},
+                )
             result.append(ready)
             for node in ready:
                 remaining.remove(node.id)
-
         return result
 
     def estimate_duration(self, nodes: List[WorkflowNode]) -> int:
-        """Estimate workflow execution time"""
-        sorted_groups = self.topological_sort(nodes)
-        total_time = 0
+        groups = self.topological_sort(nodes)
+        return sum(max(node.timeout for node in group) for group in groups)
 
-        for group in sorted_groups:
-            # Parallel group takes maximum time
-            group_time = max(node.timeout for node in group)
-            total_time += group_time
-
-        return total_time
+    def _parse_nodes(self, data: dict) -> List[WorkflowNode]:
+        nodes = []
+        for nd in data.get("steps", data.get("nodes", [])):
+            nodes.append(WorkflowNode(
+                id=nd["id"],
+                type=NodeType(nd.get("type", "agent")),
+                name=nd.get("name", nd["id"]),
+                config=nd.get("config", {}),
+                depends_on=nd.get("depends_on", []),
+                condition=nd.get("condition"),
+                retry=nd.get("retry", 0),
+                timeout=nd.get("timeout", 60),
+                priority=nd.get("priority", 0),
+            ))
+        return nodes

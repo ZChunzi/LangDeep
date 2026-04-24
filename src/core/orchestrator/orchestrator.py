@@ -1,315 +1,419 @@
-"""Flow orchestrator with Supervisor pattern."""
-from typing import TypedDict, Annotated, Sequence, Dict, Any, List, Optional
+"""Flow orchestrator — modular, extensible coordinator built on LangGraph."""
+
+import asyncio
+import importlib
+import inspect
+import os
+import sys
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Sequence
+
 from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from langchain_core.tools import tool
-import operator
-import json
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+)
 
-# Import registries
-from ..registry.model_registry import model_registry
-from ..registry.tool_registry import tool_registry
+from ..logging import get_logger, set_trace_context, clear_trace_context
+from ..errors import LangDeepError, OrchestrationError
 from ..registry.agent_registry import agent_registry
-from ..prompt.prompt_loader import MarkdownPromptLoader  # 修改：导入类，而非全局单例
+from ..execution.execution_policy import ExecutionPolicy
+
+from .router import DefaultRouter, RoutingStrategy
+from .planner import Planner, PlanGenerator, TemplateLoader, FallbackPlanGenerator
+from .executor import Executor, TaskRunner, _clean_messages
+from .aggregator import Aggregator, ResultMerger
+from .agent_node import make_agent_node
+
+logger = get_logger(__name__)
+
+DEFAULT_COMPONENT_DIRS = ["models", "tools", "agents"]
+
+# ── State definition ─────────────────────────────────────────────────────────────
+
+class OrchestratorState(dict):
+    """Typed state used by the LangGraph state graph.
+
+    Because LangGraph needs resolve_parallel_state to handle concurrent updates,
+    we keep this as a plain dict and rely on the state graph's reducer annotations.
+    """
+
+    pass
 
 
-class OrchestratorState(TypedDict):
-    """Flow orchestrator state definition"""
-    messages: Annotated[Sequence[BaseMessage], add_messages]
-    next: str
-    current_task: str
-    task_context: Dict[str, Any]
-    agent_results: Annotated[Dict[str, Any], lambda x, y: {**x, **y}]
-    workflow_plan: Optional[List[Dict[str, Any]]]
-    error_count: int
-    max_retries: int
+def _build_state_schema() -> type:
+    """Build the TypedDict schema for the graph."""
+    from typing import TypedDict, Annotated
 
+    class Schema(TypedDict, total=False):
+        messages: Annotated[Sequence[BaseMessage], add_messages]
+        next: str
+        current_task: str
+        task_context: Dict[str, Any]
+        agent_results: Annotated[Dict[str, Any], lambda x, y: {**x, **y}]
+        workflow_plan: Optional[List[Dict[str, Any]]]
+        error_count: int
+        max_retries: int
+        aggregation_done: bool
+
+    return Schema
+
+
+# ── Orchestrator ─────────────────────────────────────────────────────────────────
 
 class FlowOrchestrator:
+    """Modular, extensible workflow orchestrator.
+
+    Extension points (all injectable at construction time):
+        - ``routing_strategy`` — custom fast-path routing (subclass ``RoutingStrategy``).
+        - ``plan_generator`` — custom plan generation (subclass ``PlanGenerator``).
+        - ``task_runner`` — custom task execution/retry logic (subclass ``TaskRunner``).
+        - ``result_merger`` — custom result synthesis (subclass ``ResultMerger``).
+        - ``custom_nodes`` — dict of ``{name: callable}`` for additional graph nodes.
+
+    Parameters:
+        supervisor_model: Name of the registered model for supervisor/planning/aggregation.
+        max_retries: Default retry count for agent and task execution.
+        enable_checkpoint: Persist graph state via MemorySaver (or pass ``checkpointer``).
+        prompt_dir: External directory for prompt markdown files.
+        component_dirs: Directories to scan for ``@agent``/``@model``/``@tool`` modules.
+        llm_timeout: Timeout in seconds for LLM calls.
+        checkpointer: External LangGraph checkpointer instance.
+        routing_strategy: Custom ``RoutingStrategy`` instance.
+        workflow_templates_dir: Directory with YAML/JSON workflow templates.
+        execution_policy: Concurrency and execution strategy control.
+        custom_nodes: Dict mapping node names to callables for user-defined graph nodes.
+        plan_generator: Custom ``PlanGenerator`` instance.
+        task_runner: Custom ``TaskRunner`` instance.
+        result_merger: Custom ``ResultMerger`` instance.
+    """
+
+    # Graph node names (exposed for reference / custom edge logic)
+    NODE_SUPERVISOR = "supervisor"
+    NODE_PLANNER = "planner"
+    NODE_EXECUTOR = "executor"
+    NODE_AGGREGATOR = "aggregator"
+
     def __init__(
         self,
         supervisor_model: str = "gpt4o",
         max_retries: int = 3,
         enable_checkpoint: bool = True,
-        prompt_dir: Optional[str] = None  # 新增：支持自定义 Prompt 目录
+        prompt_dir: Optional[str] = None,
+        component_dirs: Optional[List[str]] = None,
+        llm_timeout: float = 30.0,
+        checkpointer=None,
+        routing_strategy: Optional[RoutingStrategy] = None,
+        workflow_templates_dir: Optional[str] = None,
+        execution_policy: Optional[ExecutionPolicy] = None,
+        custom_nodes: Optional[Dict[str, Callable]] = None,
+        # New extension points
+        plan_generator: Optional[PlanGenerator] = None,
+        task_runner: Optional[TaskRunner] = None,
+        result_merger: Optional[ResultMerger] = None,
     ):
-        self.supervisor_model = supervisor_model
-        self.max_retries = max_retries
-        self.checkpointer = MemorySaver() if enable_checkpoint else None
-        self.prompt_loader = MarkdownPromptLoader(prompt_dir)  # 新增：实例化 Prompt 加载器
-        self.graph = self._build_graph()
+        self._supervisor_model = supervisor_model
+        self._max_retries = max_retries
+        self._llm_timeout = llm_timeout
+        self._policy = execution_policy or ExecutionPolicy()
+
+        # Prompt loading
+        from ..prompt.prompt_loader import MarkdownPromptLoader
+        self._prompt_loader = MarkdownPromptLoader(prompt_dir)
+
+        # Checkpointer
+        if checkpointer is not None:
+            self._checkpointer = checkpointer
+        elif enable_checkpoint:
+            self._checkpointer = MemorySaver()
+        else:
+            self._checkpointer = None
+
+        # Auto-import component modules
+        self._auto_import(
+            dirs=component_dirs or DEFAULT_COMPONENT_DIRS,
+            caller_file=inspect.stack()[1].filename,
+        )
+
+        # Cached registrations
+        self._cached_agents: Optional[List[Dict]] = None
+        self._cached_targets: Optional[List[str]] = None
+        self._custom_nodes = custom_nodes or {}
+
+        # Template support
+        self._templates: Optional[TemplateLoader] = None
+        if workflow_templates_dir:
+            self._templates = TemplateLoader(workflow_templates_dir)
+
+        # ── Wire extension points ─────────────────────────────────────────────
+        self._router = DefaultRouter(
+            model_name=supervisor_model,
+            routing_strategy=routing_strategy,
+            valid_targets=self._get_valid_targets(),
+        )
+
+        self._planner = Planner(
+            model_name=supervisor_model,
+            plan_generator=plan_generator,
+            prompt_loader=self._prompt_loader,
+        )
+
+        self._executor = Executor(
+            task_runner=task_runner,
+            policy=self._policy,
+            max_retries=max_retries,
+            timeout=llm_timeout,
+        )
+
+        self._aggregator = Aggregator(
+            model_name=supervisor_model,
+            merger=result_merger,
+            prompt_loader=self._prompt_loader,
+        )
+
+        self._graph = self._build_graph()
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def invoke(
+        self,
+        user_input: str,
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute the workflow synchronously and return the final state."""
+        initial = self._initial_state(user_input, context, workflow_plan, template_name)
+        trace_id = set_trace_context()
+        logger.info("Orchestrator invoke start", extra={"input_preview": user_input[:120]})
+        try:
+            result = self._graph.invoke(initial)
+            logger.info("Orchestrator invoke complete")
+            return result
+        except Exception as exc:
+            logger.error("Orchestrator invoke failed", extra={"error": str(exc)}, exc_info=True)
+            raise OrchestrationError(
+                "Workflow execution failed",
+                context={"user_input": user_input[:200], "trace_id": trace_id},
+                cause=exc,
+            ) from exc
+        finally:
+            clear_trace_context()
+
+    async def ainvoke(
+        self,
+        user_input: str,
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute the workflow asynchronously and return the final state."""
+        initial = self._initial_state(user_input, context, workflow_plan, template_name)
+        trace_id = set_trace_context()
+        logger.info("Orchestrator ainvoke start", extra={"input_preview": user_input[:120]})
+        try:
+            result = await self._graph.ainvoke(initial)
+            logger.info("Orchestrator ainvoke complete")
+            return result
+        except Exception as exc:
+            logger.error("Orchestrator ainvoke failed", extra={"error": str(exc)}, exc_info=True)
+            raise OrchestrationError(
+                "Async workflow execution failed",
+                context={"user_input": user_input[:200], "trace_id": trace_id},
+                cause=exc,
+            ) from exc
+        finally:
+            clear_trace_context()
+
+    async def astream(self, user_input: str, context: Optional[Dict] = None, **kwargs):
+        """Execute the workflow as a stream, yielding each node's output."""
+        initial = self._initial_state(
+            user_input, context,
+            workflow_plan=kwargs.pop("workflow_plan", None),
+            template_name=kwargs.pop("template_name", None),
+        )
+        set_trace_context()
+        logger.info("Orchestrator astream start", extra={"input_preview": user_input[:120]})
+        try:
+            async for chunk in self._graph.astream(initial, **kwargs):
+                yield chunk
+        except Exception as exc:
+            logger.error("Orchestrator astream failed", extra={"error": str(exc)}, exc_info=True)
+            raise
+        finally:
+            clear_trace_context()
+
+    @property
+    def graph(self):
+        """The compiled LangGraph graph (for debugging / visualisation)."""
+        return self._graph
+
+    # ── Graph construction ────────────────────────────────────────────────────
 
     def _build_graph(self) -> StateGraph:
-        workflow = StateGraph(OrchestratorState)
+        schema = _build_state_schema()
+        graph = StateGraph(schema)
 
-        workflow.add_node("supervisor", self._supervisor_node)
-        workflow.add_node("planner", self._planner_node)
-        workflow.add_node("executor", self._executor_node)
-        workflow.add_node("aggregator", self._aggregator_node)
+        # Core nodes
+        graph.add_node(self.NODE_SUPERVISOR, self._supervisor_node)
+        graph.add_node(self.NODE_PLANNER, self._planner_node)
+        graph.add_node(self.NODE_EXECUTOR, self._executor_node)
+        graph.add_node(self.NODE_AGGREGATOR, self._aggregator_node)
 
-        for agent_name in agent_registry.list_agents():
-            workflow.add_node(agent_name, self._create_agent_node(agent_name))
-
-        workflow.add_edge(START, "supervisor")
-        workflow.add_conditional_edges(
-            "supervisor",
-            self._route_from_supervisor,
-            {
-                "planner": "planner",
-                "executor": "executor",
-                "aggregator": "aggregator",
-                "end": END,
-                **{name: name for name in agent_registry.list_agents()}
-            }
-        )
-
-        workflow.add_edge("planner", "supervisor")
-        workflow.add_edge("executor", "supervisor")
-        workflow.add_conditional_edges("aggregator", self._should_end, {"supervisor": "supervisor", "end": END})
-
-        for agent_name in agent_registry.list_agents():
-            workflow.add_edge(agent_name, "supervisor")
-
-        if self.checkpointer:
-            return workflow.compile(checkpointer=self.checkpointer)
-        return workflow.compile()
-
-    def _supervisor_node(self, state: OrchestratorState) -> Dict[str, Any]:
-        llm = model_registry.get_model(self.supervisor_model)
-        supervisor_prompt = self.prompt_loader.load_prompt("supervisor")  # 修改：使用实例加载器
-
-        messages = state["messages"]
-        task_context = state.get("task_context", {})
-        agent_results = state.get("agent_results", {})
-        workflow_plan = state.get("workflow_plan")
-
-        available_agents = []
+        # Agent nodes
+        self._agent_nodes: Dict[str, Callable] = {}
         for name in agent_registry.list_agents():
-            meta = agent_registry.get_metadata(name)
-            available_agents.append({
-                "name": name,
-                "description": meta.description if meta else "",
-                "capabilities": meta.capabilities if meta else []
-            })
+            node_fn = make_agent_node(
+                name,
+                max_retries=self._max_retries,
+                clean_messages_fn=_clean_messages,
+            )
+            self._agent_nodes[name] = node_fn
+            graph.add_node(name, node_fn)
 
-        valid_targets = ["planner", "executor", "aggregator", "end"] + [a["name"] for a in available_agents]
+        # Custom nodes
+        custom_names = []
+        for node_name, node_fn in self._custom_nodes.items():
+            graph.add_node(node_name, node_fn)
+            custom_names.append(node_name)
+            logger.info("Custom node registered", extra={"node_name": node_name})
 
-        @tool
-        def route_to_node(next_node: str) -> str:
-            """Route to the next node in the workflow."""
-            if next_node not in valid_targets:
-                return f"Error: '{next_node}' is not a valid routing target."
-            return f"Routing to {next_node}"
+        # Edges
+        graph.add_edge(START, self.NODE_SUPERVISOR)
 
-        llm_with_tools = llm.bind_tools([route_to_node], tool_choice="required")
+        agent_names = list(self._agent_nodes.keys())
+        all_targets = {self.NODE_PLANNER, "end", *agent_names, *custom_names}
 
-        prompt_messages = supervisor_prompt.format_messages(
-            available_agents=available_agents,
-            messages=messages,
-            workflow_plan=workflow_plan,
-            agent_results=agent_results,
-            valid_routing_targets=valid_targets
-        )
-        instruction = SystemMessage(
-            content=f"You MUST call the 'route_to_node' tool with 'next_node' set to one of: {', '.join(valid_targets)}."
+        graph.add_conditional_edges(
+            self.NODE_SUPERVISOR,
+            self._route_from_supervisor,
+            {t: (t if t != "end" else END) for t in all_targets},
         )
 
-        response = llm_with_tools.invoke([instruction] + prompt_messages)
-        next_action = self._parse_routing_decision(response, valid_targets)
+        graph.add_edge(self.NODE_PLANNER, self.NODE_EXECUTOR)
+        graph.add_edge(self.NODE_EXECUTOR, self.NODE_AGGREGATOR)
+        graph.add_edge(self.NODE_AGGREGATOR, END)
 
-        return {"messages": [response], "next": next_action, "task_context": task_context}
+        for name in agent_names:
+            graph.add_edge(name, self.NODE_AGGREGATOR)
+        for name in custom_names:
+            graph.add_edge(name, self.NODE_AGGREGATOR)
 
-    def _parse_routing_decision(self, response, valid_targets: List[str]) -> str:
-        if hasattr(response, 'tool_calls') and response.tool_calls:
-            tool_call = response.tool_calls[0]
-            next_node = tool_call.get('args', {}).get('next_node', '')
-            if next_node in valid_targets:
-                return next_node
-            return "planner"
-        if hasattr(response, 'content') and response.content:
-            content = response.content.lower()
-            for target in valid_targets:
-                if target in content:
-                    return target
-        return "end"
+        if self._checkpointer:
+            return graph.compile(checkpointer=self._checkpointer)
+        return graph.compile()
 
-    def _route_from_supervisor(self, state: OrchestratorState) -> str:
+    # ── Node: Supervisor ──────────────────────────────────────────────────────
+
+    def _supervisor_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        agents = self._get_available_agents()
+        # Keep valid targets up-to-date
+        self._router.set_valid_targets(self._get_valid_targets())
+        result = self._router.route(state, agents)
+        return result
+
+    # ── Node: Planner ─────────────────────────────────────────────────────────
+
+    def _planner_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        return self._planner.plan(state)
+
+    # ── Node: Executor ────────────────────────────────────────────────────────
+
+    def _executor_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        return self._executor.execute(state)
+
+    # ── Node: Aggregator ──────────────────────────────────────────────────────
+
+    def _aggregator_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        return self._aggregator.aggregate(state)
+
+    # ── Routing ───────────────────────────────────────────────────────────────
+
+    def _route_from_supervisor(self, state: Dict[str, Any]) -> str:
         next_node = state.get("next", "end")
-        if next_node == "end":
+        valid = {"planner", "end"} | set(agent_registry.list_agents()) | set(self._custom_nodes.keys())
+        if next_node not in valid:
+            logger.warning("Invalid routing target", extra={"target": next_node, "valid": list(valid)})
             return "end"
-        if not state.get("workflow_plan") and next_node not in ["planner", "end"]:
-            return "planner"
-        if state.get("workflow_plan") and self._all_tasks_completed(state):
-            return "aggregator"
         return next_node
 
-    def _planner_node(self, state: OrchestratorState) -> Dict[str, Any]:
-        llm = model_registry.get_model(self.supervisor_model)
-        planner_prompt = self.prompt_loader.load_prompt("planner")  # 修改：使用实例加载器
+    # ── State helpers ─────────────────────────────────────────────────────────
 
-        messages = state["messages"]
-        available_agents = [
-            {"name": name, "capabilities": agent_registry.get_metadata(name).capabilities}
-            for name in agent_registry.list_agents()
-        ]
-
-        response = llm.invoke(
-            planner_prompt.format_messages(
-                user_request=messages[-1].content if messages else "",
-                available_agents=available_agents
-            )
-        )
-        workflow_plan = self._parse_plan(response.content)
-        return {"messages": [response], "workflow_plan": workflow_plan}
-
-    def _executor_node(self, state: OrchestratorState) -> Dict[str, Any]:
-        workflow_plan = state.get("workflow_plan", [])
-        pending_tasks = [t for t in workflow_plan if t.get("status") != "completed"]
-        if not pending_tasks:
-            return {"messages": [AIMessage(content="All tasks completed")]}
-
-        results = {}
-        for task in pending_tasks:
-            agent_name = task.get("agent")
-            if agent_name and agent_name in agent_registry.list_agents():
-                try:
-                    agent_instance = agent_registry.get_agent(agent_name)
-                    print(f"🚀 执行 Agent: {agent_name}")
-                    # 传递原始用户消息和上下文
-                    agent_response = agent_instance.invoke({
-                        "messages": state.get("messages", []),
-                        "task_context": state.get("task_context", {})
-                    })
-                    extracted = self._extract_agent_answer(agent_response)
-                    results[agent_name] = extracted
-                    print(f"✅ Agent {agent_name} 完成，结果长度: {len(extracted)}")
-                except Exception as e:
-                    results[agent_name] = f"执行错误: {str(e)}"
-            else:
-                results[task.get("id", "unknown")] = f"未指定代理 (期望: {agent_name})"
+    def _initial_state(
+        self,
+        user_input: str,
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        plan = None
+        if template_name and self._templates:
+            plan = self._templates.apply(template_name, user_input)
+        elif workflow_plan:
+            plan = workflow_plan
 
         return {
-            "agent_results": results,
-            "workflow_plan": self._update_plan_status(workflow_plan, results)
-        }
-
-    def _extract_agent_answer(self, agent_response: Any) -> str:
-        if isinstance(agent_response, dict) and "messages" in agent_response:
-            messages = agent_response["messages"]
-            for msg in reversed(messages):
-                if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
-                    return msg.content
-            for msg in reversed(messages):
-                if isinstance(msg, AIMessage) and msg.content:
-                    return msg.content
-            return str(messages)
-        return str(agent_response)
-
-    def _create_agent_node(self, agent_name: str):
-        """Create Worker Agent node (修复消息历史问题)"""
-        def agent_node(state: OrchestratorState) -> Dict[str, Any]:
-            agent_instance = agent_registry.get_agent(agent_name)
-            print(f"🎯 直接调用 Agent: {agent_name}")
-
-            # --- 修复：清理消息历史，只保留 HumanMessage ---
-            all_messages = state["messages"]
-            cleaned_messages = [
-                msg for msg in all_messages 
-                if isinstance(msg, HumanMessage)
-            ]
-            task_context = state.get("task_context", {})
-            if task_context.get("query") and not cleaned_messages:
-                cleaned_messages = [HumanMessage(content=task_context["query"])]
-
-            agent_response = agent_instance.invoke({
-                "messages": cleaned_messages,
-                "task_context": task_context
-            })
-            # --- 修复结束 ---
-
-            extracted = self._extract_agent_answer(agent_response)
-            agent_results = state.get("agent_results", {})
-            agent_results[agent_name] = extracted
-            return {
-                "messages": [AIMessage(content=extracted)],
-                "agent_results": agent_results
-            }
-        return agent_node
-
-    def _aggregator_node(self, state: OrchestratorState) -> Dict[str, Any]:
-        llm = model_registry.get_model(self.supervisor_model)
-        aggregator_prompt = self.prompt_loader.load_prompt("aggregator")  # 修改：使用实例加载器
-        agent_results = state.get("agent_results", {})
-        user_request = state["messages"][0].content if state["messages"] else ""
-        response = llm.invoke(
-            aggregator_prompt.format_messages(user_request=user_request, agent_results=agent_results)
-        )
-        return {"messages": [response]}
-
-    def _should_end(self, state: OrchestratorState) -> str:
-        if state.get("error_count", 0) < self.max_retries:
-            return "supervisor"
-        return "end"
-
-    def _all_tasks_completed(self, state: OrchestratorState) -> bool:
-        plan = state.get("workflow_plan")
-        if not plan:
-            return False
-        return all(t.get("status") == "completed" for t in plan)
-
-    def _parse_plan(self, response_content: str) -> List[Dict[str, Any]]:
-        try:
-            content = response_content
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-            plan = json.loads(content)
-            if isinstance(plan, list):
-                return plan
-            if isinstance(plan, dict) and "tasks" in plan:
-                return plan["tasks"]
-        except Exception:
-            pass
-
-        agents = agent_registry.list_agents()
-        agent_name = agents[0] if agents else "web_research_agent"
-        return [{
-            "id": "task_1",
-            "name": "处理用户请求",
-            "agent": agent_name,
-            "tools": [],
-            "depends_on": [],
-            "parallel": False,
-            "status": "pending"
-        }]
-
-    def _update_plan_status(self, plan: List, results: Dict) -> List:
-        for task in plan:
-            if task.get("agent") in results:
-                task["status"] = "completed"
-        return plan
-
-    def invoke(self, user_input: str, context: Optional[Dict] = None) -> Dict[str, Any]:
-        initial_state = {
             "messages": [HumanMessage(content=user_input)],
+            "next": "",
+            "current_task": "",
             "task_context": context or {},
             "agent_results": {},
-            "workflow_plan": None,
+            "workflow_plan": plan,
             "error_count": 0,
-            "max_retries": self.max_retries
+            "max_retries": self._max_retries,
+            "aggregation_done": False,
         }
-        return self.graph.invoke(initial_state)
 
-    async def ainvoke(self, user_input: str, context: Optional[Dict] = None) -> Dict[str, Any]:
-        initial_state = {
-            "messages": [HumanMessage(content=user_input)],
-            "task_context": context or {},
-            "agent_results": {},
-            "workflow_plan": None,
-            "error_count": 0,
-            "max_retries": self.max_retries
-        }
-        return await self.graph.ainvoke(initial_state)
+    # ── Auto-import ───────────────────────────────────────────────────────────
+
+    def _auto_import(self, dirs: List[str], caller_file: str) -> None:
+        base_dir = os.path.dirname(os.path.abspath(caller_file))
+        for folder in dirs:
+            folder_path = (
+                folder if os.path.isabs(folder)
+                else os.path.join(base_dir, folder)
+            )
+            if not os.path.isdir(folder_path):
+                logger.debug("Component directory not found, skipping", extra={"path": folder_path})
+                continue
+            parent = os.path.dirname(folder_path)
+            if parent not in sys.path:
+                sys.path.insert(0, parent)
+            package = os.path.basename(folder_path)
+            for filename in sorted(os.listdir(folder_path)):
+                if not filename.endswith(".py") or filename.startswith("_"):
+                    continue
+                module_name = f"{package}.{filename[:-3]}"
+                if module_name in sys.modules:
+                    logger.debug("Module already loaded, skipping", extra={"component_module": module_name})
+                    continue
+                try:
+                    importlib.import_module(module_name)
+                    logger.info("Module loaded", extra={"component_module": module_name})
+                except Exception as e:
+                    logger.error("Module load failed", extra={"component_module": module_name, "error": str(e)}, exc_info=True)
+
+    # ── Cached lookups ────────────────────────────────────────────────────────
+
+    def _get_available_agents(self) -> List[Dict]:
+        if self._cached_agents is None:
+            result = []
+            for name in agent_registry.list_agents():
+                meta = agent_registry.get_metadata(name)
+                result.append({
+                    "name": name,
+                    "description": meta.description if meta else "",
+                    "capabilities": meta.capabilities if meta else [],
+                })
+            self._cached_agents = result
+        return self._cached_agents
+
+    def _get_valid_targets(self) -> List[str]:
+        if self._cached_targets is None:
+            agents = [a["name"] for a in self._get_available_agents()]
+            custom = list(self._custom_nodes.keys())
+            self._cached_targets = ["planner", "end"] + agents + custom
+        return self._cached_targets
