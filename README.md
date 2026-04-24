@@ -34,8 +34,25 @@ LangDeep 是一个基于 **LangChain** 和 **LangGraph** 构建的，**注解驱
 
 ## 📦 安装
 
+### 从源码安装（推荐，当前版本）
+
 ```bash
-pip install langdeep "langchain>=0.3.0" "langgraph>=0.2.0,<0.4.0"
+git clone https://github.com/ZChunzi/langdeep.git
+cd langdeep/LangDeep
+pip install -e .
+```
+
+### 部分依赖安装
+
+```bash
+# 仅安装核心依赖（最简）
+pip install -e .
+
+# 安装所有可选 Provider
+pip install -e ".[all]"
+
+# 安装状态持久化支持
+pip install -e ".[persist]"
 ```
 
 ---
@@ -133,6 +150,18 @@ def custom_agent():
     pass
 ```
 
+### 交互式测试入口
+
+框架提供了交互式 Agent 调用脚本，自动路由到已注册的 Agent 处理问题：
+
+```bash
+python agent_test.py
+```
+
+它使用 `FlowOrchestrator` 自动扫描 `models/`、`tools/`、`agents/` 目录下的所有组件，并流式输出结果。
+
+---
+
 ### 动态 Provider 注册
 
 您可以轻松接入新的模型提供商。例如，注册一个 DeepSeek Provider：
@@ -220,19 +249,28 @@ graph TB
 ## 📁 项目结构
 
 ```
-langdeep-py/
-├── src/langdeep/               # 核心框架代码
-│   ├── core/
-│   │   ├── decorators/         # 注解装饰器 (@model, @regist_tool, @agent)
-│   │   ├── registry/           # 模型/工具/Agent 注册中心
-│   │   ├── orchestrator/       # 流程协调器 (Supervisor 模式)
-│   │   ├── planner/            # 任务规划器
-│   │   ├── prompt/             # Markdown Prompt 加载器
-│   │   └── scheduling/         # 定时任务调度器
-├── prompts/                    # 外置 Prompt 模板 (*.md)
-├── workflows/                  # 预定义工作流 (YAML)
-├── examples/                   # 完整示例
-└── tests/                      # 单元测试
+langdeep/                        # 项目根目录
+├── LangDeep/                    # Python 包源码
+│   ├── src/                     # 框架核心代码 (映射为 langdeep 包)
+│   │   ├── core/
+│   │   │   ├── decorators/      # 注解装饰器 (@model, @regist_tool, @agent)
+│   │   │   ├── registry/        # 模型/工具/Agent 注册中心
+│   │   │   ├── orchestrator/    # 流程协调器 (Supervisor 模式)
+│   │   │   ├── planner/         # 任务规划器
+│   │   │   ├── prompt/          # Markdown Prompt 加载器
+│   │   │   └── scheduling/      # 定时任务调度器
+│   │   ├── schemas/             # 数据模型 & 状态定义
+│   │   ├── utils/               # 工具函数
+│   │   └── resources/           # 内置 Prompt 模板
+│   └── pyproject.toml           # 项目配置与依赖
+├── agents/                      # 业务 Agent 定义
+├── models/                      # 模型 Provider 注册
+├── tools/                       # 工具函数定义
+├── examples/                    # 完整使用示例
+├── workflows/                   # 预定义工作流 (YAML/JSON)
+├── tests/                       # 单元测试
+├── main.py                      # 简易入口示例
+└── agent_test.py                # 交互式 Agent 测试入口
 ```
 
 ---
