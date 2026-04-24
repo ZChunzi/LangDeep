@@ -45,12 +45,20 @@ Repository = "https://github.com/ZChunzi/langdeep"
 
 [tool.setuptools]
 package-dir = {"langdeep" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["langdeep*"]
-exclude = ["*.backup", "*.old"]
-
+packages = [
+    "langdeep",
+    "langdeep.core",
+    "langdeep.core.decorators",
+    "langdeep.core.registry",
+    "langdeep.core.orchestrator",
+    "langdeep.core.planner",
+    "langdeep.core.prompt",
+    "langdeep.core.scheduling",
+    "langdeep.core.execution",
+    "langdeep.core.coordination",
+    "langdeep.schemas",
+    "langdeep.utils",
+]
 include-package-data = true
 
 [tool.setuptools.package-data]
