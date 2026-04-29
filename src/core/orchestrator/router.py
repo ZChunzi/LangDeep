@@ -112,7 +112,7 @@ class DefaultRouter:
         ))
 
         llm = model_registry.get_model(self._model_name)
-        llm_with_tools = llm.bind_tools([self._routing_tool], tool_choice="required")
+        llm_with_tools = llm.bind_tools([self._routing_tool])
 
         try:
             response = llm_with_tools.invoke(
