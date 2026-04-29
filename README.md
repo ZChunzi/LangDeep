@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/langdeep/.github/main/assets/langdeep-logo.png" alt="LangDeep Logo" width="200"/>
+<img src="https://raw.githubusercontent.com/ZChunzi/LangDeep/main/.github/main/assets/langdeep-logo.png" alt="LangDeep Logo" width="200"/>
 
 # LangDeep
 
