@@ -268,16 +268,68 @@ langdeep/                        # 项目根目录
 │   │   ├── schemas/             # 数据模型 & 状态定义
 │   │   ├── utils/               # 工具函数
 │   │   └── resources/           # 内置 Prompt 模板
+│   ├── tests/                   # 单元测试与集成测试 (247 个)
+│   │   ├── conftest.py          # 共享夹具与 SmartMockLLM
+│   │   ├── run_all.py           # 统一测试运行器
+│   │   └── test_*.py            # 各模块单元测试
+│   ├── scripts/                 # 框架工具脚本
+│   │   └── run_tests.py         # 测试运行入口
+│   ├── workflows/               # 预定义工作流 (YAML/JSON)
 │   └── pyproject.toml           # 项目配置与依赖
 ├── agents/                      # 业务 Agent 定义
 ├── models/                      # 模型 Provider 注册
 ├── tools/                       # 工具函数定义
 ├── examples/                    # 完整使用示例
-├── workflows/                   # 预定义工作流 (YAML/JSON)
-├── tests/                       # 单元测试
+├── workflows/                   # 项目级工作流 (YAML/JSON)
 ├── main.py                      # 简易入口示例
 └── agent_test.py                # 交互式 Agent 测试入口
 ```
+
+---
+
+## ✅ 测试
+
+框架内置 **247 个自动化测试**，覆盖所有核心模块的逻辑路径。
+
+### 运行测试
+
+```bash
+cd LangDeep
+# 运行全部测试
+python scripts/run_tests.py
+
+# 详细输出
+python scripts/run_tests.py -v
+
+# 按模块筛选
+python scripts/run_tests.py --filter executor
+
+# 列出所有测试模块
+python scripts/run_tests.py --list
+
+# 首次失败即停止
+python scripts/run_tests.py --failfast
+```
+
+### 测试覆盖范围
+
+| 模块 | 测试数 | 覆盖内容 |
+|------|--------|----------|
+| Orchestrator | 22 | 构建、路由、流式、扩展点注入、异常路径 |
+| Executor | 20 | 依赖解析、批量/并发/顺序策略、循环依赖、部分失败 |
+| Planner | 19 | LLM/降级规划器、模板加载、JSON/YAML 解析、异常容错 |
+| Aggregator | 18 | 多结果合并、失败隔离、自定义 Merger、启发式分类 |
+| Registry | 26 | 注册/查询/过滤/审计、单例隔离 |
+| Task Scheduler | 16 | Cron/间隔/一次性/条件触发、重试 |
+| Fuzz 测试 | 4 | 随机消息序列、随机 DAG、随机字符串的不变式验证 |
+| 集成测试 | 24 | 端到端工作流、Agent 能力验证 |
+| **总计** | **247** | **所有核心模块** |
+
+### 测试架构
+
+- **SmartMockLLM** — 角色感知的 Mock LLM，无需真实 API 即可模拟 Supervisor/Planner/Aggregator/Agent 各角色的 LLM 响应
+- **隔离运行** — 每个测试前自动重置所有单例注册中心，无跨测试状态污染
+- **双路径覆盖** — 同步 (`invoke`) 和异步 (`ainvoke`/`astream`) 路径均有测试
 
 ---
 

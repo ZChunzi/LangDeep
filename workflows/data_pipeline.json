@@ -1,0 +1,23 @@
+{
+  "id": "data_pipeline",
+  "name": "数据处理流水线",
+  "description": "固定的数据处理流程：提取 → 转换 → 加载",
+  "steps": [
+    {
+      "id": "extract",
+      "name": "web_research_agent",
+      "agent": "web_research_agent",
+      "depends_on": [],
+      "priority": 1,
+      "status": "pending"
+    },
+    {
+      "id": "transform",
+      "name": "default_agent",
+      "agent": "default_agent",
+      "depends_on": ["extract"],
+      "priority": 2,
+      "status": "pending"
+    }
+  ]
+}

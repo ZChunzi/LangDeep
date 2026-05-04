@@ -5,7 +5,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set
 
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
 from ..logging import get_logger, get_trace_id
 from ..errors import TaskExecutionError, CircularDependencyError
@@ -51,11 +51,38 @@ class TaskRunner(ABC):
 
 
 class RetryTaskRunner(TaskRunner):
-    """Executes a task via the agent registry with exponential-backoff retry."""
+    """Executes a task via the agent registry with exponential-backoff retry.
+
+    Automatically injects ``previous_results`` as SystemMessage context
+    so the agent can reference earlier task outputs.
+    """
 
     def __init__(self, max_retries: int = 3, timeout: float = 30.0):
         self.max_retries = max_retries
         self.timeout = timeout
+
+    # ── helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _inject_context(
+        clean_messages: List[BaseMessage],
+        previous_results: Dict[str, Any],
+    ) -> List[BaseMessage]:
+        """Prepend a summary of previous task results as SystemMessage."""
+        if not previous_results:
+            return clean_messages
+
+        lines = ["Previous task results (for context):"]
+        for task_id, result in previous_results.items():
+            text = result.get("data", "") if isinstance(result, dict) else str(result)
+            if text and not text.startswith("Agent ") and "error" not in str(text).lower():
+                lines.append(f"  [{task_id}]: {str(text)[:300]}")
+        if len(lines) == 1:
+            return clean_messages
+
+        return [SystemMessage(content="\n".join(lines))] + list(clean_messages)
+
+    # ── sync ───────────────────────────────────────────────────────────
 
     def run(
         self,
@@ -72,12 +99,14 @@ class RetryTaskRunner(TaskRunner):
             logger.warning("Task cannot run", extra={"task_id": task_id, "agent": agent_name})
             return err(msg)
 
+        messages = self._inject_context(clean_messages, previous_results)
+
         last_error = None
         for attempt in range(1, self.max_retries + 1):
             try:
                 agent_instance = agent_registry.get_agent(agent_name)
                 resp = agent_instance.invoke({
-                    "messages": clean_messages,
+                    "messages": messages,
                     "task_context": {
                         **state.get("task_context", {}),
                         "task": task,
@@ -105,6 +134,8 @@ class RetryTaskRunner(TaskRunner):
 
         return err(f"Max retries ({self.max_retries}) exhausted. Last error: {last_error}")
 
+    # ── async ──────────────────────────────────────────────────────────
+
     async def arun(
         self,
         task: Dict[str, Any],
@@ -120,13 +151,15 @@ class RetryTaskRunner(TaskRunner):
             logger.warning("Task cannot run", extra={"task_id": task_id, "agent": agent_name})
             return err(msg)
 
+        messages = self._inject_context(clean_messages, previous_results)
+
         last_error = None
         for attempt in range(1, self.max_retries + 1):
             try:
                 agent_instance = agent_registry.get_agent(agent_name)
                 resp = await asyncio.wait_for(
                     agent_instance.ainvoke({
-                        "messages": clean_messages,
+                        "messages": messages,
                         "task_context": {
                             **state.get("task_context", {}),
                             "task": task,
@@ -240,15 +273,16 @@ class Executor:
             else list(tasks)
         )
 
+        # If already inside a running event loop, offload sync work to a thread pool.
+        # Otherwise use asyncio.run() for concurrent I/O-bound execution.
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    return _threaded_batch(
-                        pool, sorted_tasks, self._runner, clean_msgs, state, previous,
-                        self._policy.max_concurrency,
-                    )
+            asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                return _threaded_batch(
+                    pool, sorted_tasks, self._runner, clean_msgs, state, previous,
+                    self._policy.max_concurrency,
+                )
         except RuntimeError:
             pass
 
@@ -295,11 +329,40 @@ async def _async_batch(
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
 
-def _clean_messages(messages) -> List[BaseMessage]:
-    return [
-        m for m in messages
-        if not (isinstance(m, AIMessage) and getattr(m, "tool_calls", None))
-    ]
+def _clean_messages(messages, max_messages: int = 80) -> List[BaseMessage]:
+    """Clean messages while preserving tool-call chain integrity.
+
+    Unlike the original (which deleted ALL AIMessages with tool_calls),
+    this version keeps every message that carries signal:
+      - AIMessage with tool_calls  → needed by ReAct for multi-turn loops
+      - ToolMessage                → tool invocation results
+      - AIMessage with content     → final / intermediate LLM responses
+      - HumanMessage / SystemMessage → conversation context
+
+    Only genuinely empty AIMessages (no content, no tool_calls) are dropped.
+    """
+    cleaned: List[BaseMessage] = []
+    for m in messages:
+        # ReAct loop invariants — never strip these
+        if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+            cleaned.append(m)
+            continue
+        if isinstance(m, ToolMessage):
+            cleaned.append(m)
+            continue
+        # Content-carrying messages
+        if isinstance(m, AIMessage) and m.content:
+            cleaned.append(m)
+            continue
+        if isinstance(m, (HumanMessage, SystemMessage)):
+            cleaned.append(m)
+            continue
+
+    # Bound context window to prevent token-limit overflow
+    if len(cleaned) > max_messages:
+        cleaned = cleaned[:2] + cleaned[-(max_messages - 2):]
+
+    return cleaned
 
 
 def _dependencies_satisfied(task: Dict, results: Dict[str, Any]) -> bool:

@@ -63,11 +63,15 @@ def make_agent_node(
 def _extract(response: Any) -> str:
     if isinstance(response, dict) and "messages" in response:
         for m in reversed(response["messages"]):
-            if isinstance(m, AIMessage) and m.content and not getattr(m, "tool_calls", None):
-                return m.content
-        for m in reversed(response["messages"]):
             if isinstance(m, AIMessage) and m.content:
-                return m.content
+                content = m.content
+                if isinstance(content, list):
+                    texts = [
+                        c.get("text", "") if isinstance(c, dict) else str(c)
+                        for c in content
+                    ]
+                    return "".join(texts).strip()
+                return content
     if isinstance(response, str):
         return response
     return str(response)

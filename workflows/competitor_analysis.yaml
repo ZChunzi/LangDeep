@@ -1,0 +1,21 @@
+id: "competitor_analysis"
+name: "竞品分析流水线"
+description: "对指定竞品进行搜索、功能分析和报告生成的多步工作流"
+steps:
+  - id: "task_search"
+    name: "search_competitors"
+    agent: "web_research_agent"
+    depends_on: []
+    config:
+      tools: ["tavily_web_search"]
+    priority: 1
+    status: "pending"
+
+  - id: "task_analyze"
+    name: "analyze_features"
+    agent: "default_agent"
+    depends_on: ["task_search"]
+    config:
+      tools: []
+    priority: 2
+    status: "pending"

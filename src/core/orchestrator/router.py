@@ -1,5 +1,6 @@
 """Supervisor routing — keyword fast-path and LLM fallback."""
 
+import re
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -29,7 +30,12 @@ class RoutingStrategy(ABC):
 
 
 class KeywordRoutingStrategy(RoutingStrategy):
-    """Default keyword-based fast router — no LLM call, near-zero latency."""
+    """Default keyword-based fast router — no LLM call, near-zero latency.
+
+    Uses word-boundary matching for ASCII keywords and minimum-length
+    guards for CJK to avoid spurious substring matches (e.g. ``code``
+    in ``encode``).
+    """
 
     def route(self, user_input: str, available_agents: List[Dict[str, Any]]) -> Optional[str]:
         lower_input = user_input.lower()
@@ -37,10 +43,34 @@ class KeywordRoutingStrategy(RoutingStrategy):
             name = agent_info["name"]
             meta = agent_registry.get_metadata(name)
             keywords = meta.routing_keywords if meta else []
-            if any(kw.lower() in lower_input for kw in keywords):
-                logger.info("Keyword routing hit", extra={"agent_name": name})
-                return name
+            for kw in keywords:
+                kw_lower = kw.lower()
+                # Exact match always wins
+                if kw_lower == lower_input.strip():
+                    logger.info("Keyword routing hit (exact)", extra={"agent_name": name, "keyword": kw})
+                    return name
+                if self._match_keyword(lower_input, kw_lower):
+                    logger.info("Keyword routing hit", extra={"agent_name": name, "keyword": kw})
+                    return name
         return None
+
+    @staticmethod
+    def _match_keyword(text: str, keyword: str) -> bool:
+        """Check if *keyword* appears as a meaningful token inside *text*."""
+        # Empty guard
+        if not keyword or len(keyword) < 2:
+            return False
+
+        # ASCII → word-boundary regex match
+        if all(ord(c) < 0x2000 for c in keyword):
+            pattern = re.escape(keyword)
+            return bool(re.search(rf'(?<![a-zA-Z]){pattern}(?![a-zA-Z])', text))
+
+        # CJK / non-ASCII → require minimum length to reduce accidental matches
+        if len(keyword) >= 2:
+            return keyword in text
+
+        return False
 
 
 class DefaultRouter:

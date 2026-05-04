@@ -71,13 +71,13 @@ class MarkdownPromptLoader:
         config, body = self._parse_frontmatter(content)
         template = self._parse_markdown_prompt(body)
         self._cache[name] = template
-        logger.debug("Prompt loaded", extra={"name": name, "version": config.get("version", "unknown")})
+        logger.debug("Prompt loaded", extra={"prompt_name": name, "version": config.get("version", "unknown")})
         return template
 
     def reload(self, name: Optional[str] = None):
         if name:
             self._cache.pop(name, None)
-            logger.debug("Prompt cache entry cleared", extra={"name": name})
+            logger.debug("Prompt cache entry cleared", extra={"prompt_name": name})
         else:
             self._cache.clear()
             logger.debug("All prompt cache entries cleared")

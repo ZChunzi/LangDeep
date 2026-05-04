@@ -56,7 +56,7 @@ class WorkflowPlanner:
                     data = yaml.safe_load(f) if ext != ".json" else json.load(f)
                 nodes = self._parse_nodes(data)
                 self._workflows[name] = nodes
-                logger.info("Workflow loaded", extra={"name": name, "file": str(wf_file), "node_count": len(nodes)})
+                logger.info("Workflow loaded", extra={"wf_name": name, "file": str(wf_file), "node_count": len(nodes)})
                 return nodes
 
         raise TemplateNotFoundError(
@@ -93,6 +93,12 @@ class WorkflowPlanner:
             for key, value in list(task.items()):
                 if isinstance(value, str) and "{{ user_input }}" in value:
                     task[key] = value.replace("{{ user_input }}", user_input)
+                elif isinstance(value, dict):
+                    task[key] = {
+                        k: v.replace("{{ user_input }}", user_input)
+                        if isinstance(v, str) else v
+                        for k, v in value.items()
+                    }
             plan.append(task)
         return plan
 

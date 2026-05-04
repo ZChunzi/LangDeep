@@ -1,0 +1,97 @@
+"""Unit tests for @agent, @model, @tool, @provider decorators."""
+
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from langdeep.core.decorators.agent import agent
+from langdeep.core.decorators.model import model
+from langdeep.core.decorators.tool import regist_tool
+from langdeep.core.decorators.provider import provider
+from langdeep.core.registry.agent_registry import agent_registry, AgentMetadata
+from langdeep.core.registry.model_registry import model_registry, ModelConfig
+from langdeep.core.registry.tool_registry import tool_registry, ToolMetadata
+
+from conftest import clean_registries
+
+
+def setup_function():
+    clean_registries()
+
+
+def test_agent_decorator():
+    @agent(name="math_bot", description="Solves math", capabilities=["math"],
+           routing_keywords=["calculate"], model="gpt4o", tools=["calc"], priority=2)
+    def create_math_bot():
+        class Agent:
+            def invoke(self, state):
+                return {"messages": [AIMessage(content="42")]}
+        return Agent()
+
+    assert "math_bot" in agent_registry.list_agents()
+    meta = agent_registry.get_metadata("math_bot")
+    assert meta.description == "Solves math"
+    assert meta.routing_keywords == ["calculate"]
+    assert meta.tools == ["calc"]
+    assert meta.priority == 2
+
+    cleaned = clean_registries()
+
+
+def test_agent_decorator_default_name():
+    @agent(description="Uses function name")
+    def my_custom_agent():
+        class A:
+            def invoke(self, s):
+                return {"messages": [AIMessage(content="ok")]}
+        return A()
+
+    assert "my_custom_agent" in agent_registry.list_agents()
+
+
+def test_model_decorator():
+    @model(name="test-gpt", provider="mock", model_name="test-model", temperature=0.5)
+    def my_model():
+        pass
+
+    assert "test-gpt" in model_registry.list_models()
+
+    cleaned = clean_registries()
+
+
+def test_regist_tool_decorator():
+    @regist_tool(name="weather_tool", category="api", tags=["weather", "external"])
+    def get_weather(city: str) -> str:
+        """Get weather for a city."""
+        return f"{city}: 22C"
+
+    assert "weather_tool" in tool_registry.list_tools()
+    meta = tool_registry.get_metadata("weather_tool")
+    assert meta.category == "api"
+    assert "weather" in meta.tags
+    assert get_weather("Paris") == "Paris: 22C"
+
+
+def test_provider_decorator():
+    @provider(name="my_provider")
+    def create_my_model(config):
+        from langchain_core.language_models import BaseChatModel
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration, ChatResult
+        class MyLLM(BaseChatModel):
+            model_name: str = config.model_name
+            temperature: float = config.temperature
+            def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                return ChatResult(generations=[ChatGeneration(message=AIMessage(content="my provider"))])
+            @property
+            def _llm_type(self):
+                return "my_provider"
+        return MyLLM()
+
+    from langdeep.core.registry.model_registry import provider_registry
+    factory = provider_registry.get_provider("my_provider")
+    assert callable(factory)
+
+
+# Need this import for the agent decorator test
+from langchain_core.messages import AIMessage

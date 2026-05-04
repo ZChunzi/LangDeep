@@ -70,5 +70,27 @@ class AgentRegistry:
             if capability in meta.capabilities
         ]
 
+    def audit_tools(self) -> List[str]:
+        """Verify every registered agent's tool list against the tool registry.
+
+        Returns a list of warning messages (empty = all tools valid).
+        """
+        from ..registry.tool_registry import tool_registry
+
+        registered_tools = set(tool_registry.list_tools())
+        issues: List[str] = []
+
+        for name, meta in self._metadata.items():
+            missing = [t for t in (meta.tools or []) if t not in registered_tools]
+            if missing:
+                msg = f"Agent '{name}': tools not registered -> {missing}"
+                issues.append(msg)
+                logger.warning(msg)
+
+        if not issues:
+            logger.info("Agent tool audit passed — all tools are registered")
+
+        return issues
+
 
 agent_registry = AgentRegistry()
