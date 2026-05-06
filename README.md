@@ -22,13 +22,15 @@ API 可能发生变动，欢迎试用并提供反馈，暂不建议直接部署�
 
 LangDeep 是一个基于 **LangChain** 和 **LangGraph** 构建的，**注解驱动**、**开箱即用**的企业级多 Agent 工作流框架。它旨在帮助开发者用极少的代码，快速搭建复杂的、具备生产能力的多 Agent 协作系统。
 
-- **🎨 注解驱动**: 使用 `@model`、`@regist_tool`、`@agent` 装饰器声明式注册组件，告别样板代码。
+- **🎨 注解驱动**: 使用 `@model`、`@regist_tool`、`@agent`、`@memory`、`@cache`、`@im_channel` 装饰器声明式注册组件，告别样板代码。
 - **🧠 Supervisor（主管）智能调度**: 内置主管 Agent 模式，自动将任务路由给最合适的专家 Agent。
 - **📋 内置任务规划器**: LLM 驱动的动态任务拆解，将复杂请求分解为可并行执行的子任务序列。
 - **📝 外置 Prompt 管理**: 将 Prompt 存储为 Markdown 文件，支持 `{variable}` 语法插值和热重载。
 - **🔌 动态 Provider 注册**: 无需修改核心代码即可接入任何模型提供商（OpenAI、Anthropic、DeepSeek、Ollama...）。
 - **⏰ 定时任务与条件调度**: 内置 Cron 调度器，支持定时执行工作流或基于业务条件触发。
 - **💾 状态持久化**: 支持 LangGraph Checkpointer，工作流可在任意节点中断并恢复。
+- **🗄️ 可插拔存储后端**: `@memory` 注解注册记忆存储（Redis / SQLite / 内存），`@cache` 注解注册 LLM 响应缓存，统一的抽象接口层。
+- **💬 即时通讯接入**: `@im_channel` 注解注册消息处理器，内置 Webhook 接收器，支持企业微信、钉钉、飞书、Slack 等平台。
 
 ---
 
@@ -226,6 +228,8 @@ graph TB
         PromptLoader[Prompt 加载器]
         Checkpointer[Checkpointer 状态存储]
         Scheduler[Scheduler 调度器]
+        MemoryBackend[Memory 存储后端]
+        CacheBackend[Cache 缓存后端]
     end
 
     User --> Orchestrator
@@ -259,16 +263,19 @@ langdeep/                        # 项目根目录
 ├── LangDeep/                    # Python 包源码
 │   ├── src/                     # 框架核心代码 (映射为 langdeep 包)
 │   │   ├── core/
-│   │   │   ├── decorators/      # 注解装饰器 (@model, @regist_tool, @agent)
+│   │   │   ├── decorators/      # 注解装饰器 (@model, @regist_tool, @agent, @memory, @cache, @im_channel)
 │   │   │   ├── registry/        # 模型/工具/Agent 注册中心
 │   │   │   ├── orchestrator/    # 流程协调器 (Supervisor 模式)
 │   │   │   ├── planner/         # 任务规划器
 │   │   │   ├── prompt/          # Markdown Prompt 加载器
-│   │   │   └── scheduling/      # 定时任务调度器
+│   │   │   ├── memory/          # 记忆存储后端 (MemoryEntry, InMemoryBackend, @memory)
+│   │   │   ├── cache/           # 缓存后端 (MemoryCache LRU+TTL, @cache)
+│   │   │   ├── im/              # 即时通讯集成 (@im_channel, WebhookReceiver)
+│   │   │   └── scheduling/      # 定时任务调度器 (WorkerPool, TaskStore, AuditLog)
 │   │   ├── schemas/             # 数据模型 & 状态定义
 │   │   ├── utils/               # 工具函数
 │   │   └── resources/           # 内置 Prompt 模板
-│   ├── tests/                   # 单元测试与集成测试 (247 个)
+│   ├── tests/                   # 单元测试与集成测试 (310 个)
 │   │   ├── conftest.py          # 共享夹具与 SmartMockLLM
 │   │   ├── run_all.py           # 统一测试运行器
 │   │   └── test_*.py            # 各模块单元测试
@@ -289,7 +296,7 @@ langdeep/                        # 项目根目录
 
 ## ✅ 测试
 
-框架内置 **247 个自动化测试**，覆盖所有核心模块的逻辑路径。
+框架内置 **310 个自动化测试**，覆盖所有核心模块的逻辑路径。
 
 ### 运行测试
 
@@ -321,9 +328,12 @@ python scripts/run_tests.py --failfast
 | Aggregator | 18 | 多结果合并、失败隔离、自定义 Merger、启发式分类 |
 | Registry | 26 | 注册/查询/过滤/审计、单例隔离 |
 | Task Scheduler | 16 | Cron/间隔/一次性/条件触发、重试 |
+| Memory | 21 | InMemoryBackend CRUD、序列化轮转、Registry、@memory 装饰器 |
+| Cache | 24 | LRU 驱逐、TTL 过期、线程安全、Registry、@cache 装饰器 |
+| IM | 18 | 消息模型、Registry 分发、@im_channel 装饰器、WebhookReceiver |
 | Fuzz 测试 | 4 | 随机消息序列、随机 DAG、随机字符串的不变式验证 |
 | 集成测试 | 24 | 端到端工作流、Agent 能力验证 |
-| **总计** | **247** | **所有核心模块** |
+| **总计** | **310** | **所有核心模块** |
 
 ### 测试架构
 
@@ -356,19 +366,92 @@ graph.add_node("custom", custom_node)
 
 ## 📖 进阶配置
 
-### 定时任务
+### 记忆存储后端 (`@memory`)
 
-使用 `@cron` 装饰器定义周期性任务（基于 `scheduling` 模块）：
+通过 `@memory` 注解注册自定义存储后端。框架提供内置 `InMemoryBackend`，可替换为 Redis、SQLite、PostgreSQL 等：
 
 ```python
-from langdeep.scheduling import cron
+from langdeep import memory
+from langdeep.core.memory import BaseMemoryBackend, MemoryEntry
 
-# 假设 orchestrator 已在全局作用域定义
-orchestrator = FlowOrchestrator(supervisor_model="gpt-4o")
+class RedisBackend(BaseMemoryBackend):
+    def __init__(self, host="localhost", port=6379):
+        import redis
+        self._client = redis.Redis(host=host, port=port)
+    def store_entry(self, session_id, entry): ...
+    def load_messages(self, session_id): ...
+    def list_sessions(self): ...
+    def delete_session(self, session_id): ...
+    def clear(self): ...
+    def close(): ...
 
-@cron("0 9 * * *")  # 每天上午9点执行
-def daily_report():
-    orchestrator.run("生成今日科技新闻简报")
+@memory(name="session_store", description="Redis-backed conversation memory")
+def session_store():
+    return RedisBackend(host="localhost", port=6379)
+
+# 在协调器中使用
+orchestrator = FlowOrchestrator(
+    supervisor_model="gpt-4o",
+    memory="session_store"  # 按名查找注册的记忆后端
+)
+```
+
+### LLM 响应缓存 (`@cache`)
+
+使用 `@cache` 注解注册 LRU+TTL 缓存后端，减少重复 LLM 调用：
+
+```python
+from langdeep import cache
+
+@cache(name="llm_cache", ttl=300, max_entries=1024)
+def llm_cache():
+    pass  # 使用内置 MemoryCache
+
+# 启用模型缓存的响应缓存
+from langdeep.core.cache import cache_registry
+cache_backend = cache_registry.get_backend("llm_cache")
+model_registry.enable_response_cache(cache_backend)
+```
+
+### 即时通讯集成 (`@im_channel`)
+
+```python
+from langdeep import im_channel
+from langdeep.core.im import IMMessage, IMEvent
+
+@im_channel(name="helpdesk", platform="wecom", description="企业微信客服")
+def handle_helpdesk(event: IMEvent) -> str:
+    return f"已收到您的消息: {event.content}"
+```
+
+### 定时任务 (增强版)
+
+调度器新增 `WorkerPool`（异步执行）、`TaskStore`（任务持久化）、`AuditLog`（执行审计）：
+
+```python
+from langdeep.core.scheduling import TaskScheduler, ScheduledTask, TriggerType, WorkerPool, TaskStore, AuditLog
+
+scheduler = TaskScheduler(
+    orchestrator,
+    worker_pool=WorkerPool(max_workers=4),
+    task_store=TaskStore(),      # 基于 MemoryCache，可替换为 Redis 等
+    audit_log=AuditLog(max_entries=1000),
+    auto_recover=True,            # 启动时自动恢复未完成任务
+    graceful_timeout=10,          # 优雅关闭超时
+)
+
+scheduler.register_task(ScheduledTask(
+    id="daily_report",
+    name="Daily Report",
+    trigger_type=TriggerType.CRON,
+    trigger_config={"cron": "0 9 * * 1-5"},
+    workflow="daily_report",
+))
+scheduler.start()
+
+# 查看执行历史和统计
+audit_log = scheduler.get_execution_history()
+stats = scheduler.get_scheduler_stats()
 ```
 
 ### 启用状态持久化

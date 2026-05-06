@@ -1,6 +1,6 @@
 # LangDeep Framework — Developer Guide
 
-**Version 0.3.0** | **License MIT**
+**Version 1.2.0** | **License MIT**
 
 ---
 
@@ -18,12 +18,13 @@
 10. [Prompts](#10-prompts)
 11. [Checkpointing & State](#11-checkpointing--state)
 12. [Task Scheduler](#12-task-scheduler)
-13. [Error Handling](#13-error-handling)
-14. [Logging & Tracing](#14-logging--tracing)
-15. [API Reference](#15-api-reference)
-16. [Extension Points](#16-extension-points)
-17. [Best Practices](#17-best-practices)
-18. [Troubleshooting](#18-troubleshooting)
+13. [IM Integration](#13-im-integration)
+14. [Error Handling](#14-error-handling)
+15. [Logging & Tracing](#15-logging--tracing)
+16. [API Reference](#16-api-reference)
+17. [Extension Points](#17-extension-points)
+18. [Best Practices](#18-best-practices)
+19. [Troubleshooting](#19-troubleshooting)
 
 ---
 
@@ -48,7 +49,11 @@ LangDeep is a decorator-driven multi-agent orchestration framework built on Lang
 | Result synthesis | LLM-based merger with conflict resolution |
 | Workflow templates | YAML/JSON declarative workflow definitions |
 | Scheduled execution | Cron/interval/condition-based task scheduler |
+| Scheduled execution | Cron/interval/condition-based task scheduler with WorkerPool, TaskStore, AuditLog |
 | State persistence | LangGraph checkpointing (MemorySaver default, PostgresSaver injectable) |
+| Pluggable memory backends | `@memory` decorator + `BaseMemoryBackend` ABC (Redis, SQLite, etc.) |
+| LLM response caching | `@cache` decorator + `BaseCacheBackend` ABC (LRU+TTL, Redis, etc.) |
+| IM platform integration | `@im_channel` decorator + `WebhookReceiver` (WeCom, DingTalk, Feishu, Slack) |
 
 ---
 
@@ -955,6 +960,152 @@ result = await orchestrator.ainvoke(
 )
 ```
 
+### 11.6 Memory Backends
+
+Memory backends provide persistent conversation storage beyond a single invocation. They follow the same decorator-driven pluggable pattern as models and agents.
+
+**Interface (`BaseMemoryBackend` ABC):**
+
+```python
+class BaseMemoryBackend(ABC):
+    def store_entry(self, session_id: str, entry: MemoryEntry) -> None: ...
+    def store_messages(self, session_id: str, messages: Sequence[BaseMessage]) -> int: ...
+    def load_messages(self, session_id: str) -> List[BaseMessage]: ...
+    def list_sessions(self) -> List[str]: ...
+    def delete_session(self, session_id: str) -> bool: ...
+    def clear(self) -> None: ...
+    def close(self) -> None: ...
+```
+
+**Built-in implementation — `InMemoryBackend`:**
+
+Thread-safe, dict-based, ideal for development and testing. Automatically used when the `@memory` factory returns `None`.
+
+**Registration via `@memory` decorator:**
+
+```python
+from langdeep import memory
+
+@memory(name="session_store", description="Redis conversation store")
+def session_store():
+    return RedisBackend(host="localhost", port=6379)
+```
+
+**Using memory in the orchestrator:**
+
+```python
+orchestrator = FlowOrchestrator(
+    supervisor_model="gpt4o",
+    memory="session_store",  # str name → looked up in MemoryRegistry
+)
+```
+
+**`@memory` reference:**
+
+```python
+@memory(
+    name: Optional[str] = None,    # Registry key (defaults to function name)
+    description: str = "",          # Human-readable description
+    **kwargs,                       # Extra metadata stored with registration
+)
+```
+
+**Extending with a custom backend:**
+
+```python
+from langdeep.core.memory import BaseMemoryBackend, MemoryEntry, memory_registry
+
+class SQLiteBackend(BaseMemoryBackend):
+    def __init__(self, db_path="conversations.db"):
+        import sqlite3
+        self._conn = sqlite3.connect(db_path)
+        self._conn.execute("CREATE TABLE IF NOT EXISTS memory (...)")
+
+    def store_entry(self, session_id, entry):
+        self._conn.execute("INSERT INTO memory VALUES (?, ?, ?, ?)",
+                           (session_id, entry.message_idx, entry.role, entry.content))
+
+    def load_messages(self, session_id):
+        # ... query and return BaseMessage list
+        pass
+
+    def list_sessions(self): ...
+    def delete_session(self, session_id): ...
+    def clear(self): ...
+    def close(self): ...
+
+@memory(name="sqlite_store", description="SQLite-backed memory")
+def sqlite_store():
+    return SQLiteBackend("conversations.db")
+```
+
+### 11.7 Cache Backends
+
+Cache backends provide opt-in LLM response caching to reduce repeated API calls and latency.
+
+**Interface (`BaseCacheBackend` ABC):**
+
+```python
+class BaseCacheBackend(ABC):
+    def get(self, key: str) -> Optional[Any]: ...
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None: ...
+    def delete(self, key: str) -> bool: ...
+    def has(self, key: str) -> bool: ...
+    def clear(self) -> None: ...
+```
+
+**Built-in implementation — `MemoryCache`:**
+
+LRU eviction (`OrderedDict`-based) with optional TTL, thread-safe via `threading.Lock`. Configurable `max_size` and `default_ttl`.
+
+```python
+from langdeep.core.cache import MemoryCache
+
+cache = MemoryCache(max_size=128, default_ttl=300)
+cache.set("key", "value")
+assert cache.get("key") == "value"
+# LRU evicts least-recently-used when max_size exceeded
+```
+
+**Registration via `@cache` decorator:**
+
+```python
+from langdeep import cache
+
+@cache(name="llm_cache", ttl=300, max_entries=1024)
+def llm_cache():
+    pass  # Uses built-in MemoryCache
+```
+
+**`@cache` reference:**
+
+```python
+@cache(
+    name: Optional[str] = None,    # Registry key (defaults to function name)
+    ttl: Optional[int] = 300,      # Default TTL in seconds
+    max_entries: int = 1024,       # LRU max entries
+    description: str = "",          # Human-readable description
+    **kwargs,                       # Extra metadata
+)
+```
+
+**Enabling response caching on ModelRegistry:**
+
+```python
+from langdeep.core.registry.model_registry import model_registry
+from langdeep.core.cache import cache_registry
+
+response_cache = cache_registry.get_backend("llm_cache")
+model_registry.enable_response_cache(response_cache)
+
+# Subsequent calls with the same messages hit the cache
+result = model_registry.invoke_with_cache("gpt4o", messages)
+```
+
+**Internal instance caching:**
+
+`ModelRegistry` internally replaces its `_instances: Dict` with `_instance_cache: MemoryCache(max_size=16)` for LRU-based model instance eviction. This prevents unbounded memory growth when many models are registered. This is transparent to users.
+
 ---
 
 ## 12. Task Scheduler
@@ -1053,14 +1204,253 @@ await scheduler.aexecute_now("daily_report")
 
 ```python
 scheduler.start()   # Start daemon thread
-scheduler.stop()    # Stop daemon thread
+scheduler.stop()    # Stop daemon thread (graceful shutdown via WorkerPool)
+```
+
+### 12.7 WorkerPool
+
+`WorkerPool` wraps `ThreadPoolExecutor` to execute scheduled tasks asynchronously, preventing the scheduler loop from blocking.
+
+```python
+from langdeep.core.scheduling import WorkerPool
+
+pool = WorkerPool(max_workers=4)
+pool.submit(callable, *args, **kwargs)
+pool.running_count()     # Currently executing tasks
+pool.shutdown(wait=True, timeout=15)
+```
+
+The scheduler uses `WorkerPool` internally: `_execute_task` runs synchronously for direct calls, while `_execute_task_async` submits to the pool for timer-triggered execution.
+
+### 12.8 TaskStore
+
+`TaskStore` persists `ScheduledTask` objects via a pluggable `BaseCacheBackend`:
+
+```python
+from langdeep.core.scheduling import TaskStore
+
+store = TaskStore()  # Uses MemoryCache by default
+store.save_task(task)
+loaded = store.get_task("daily_report")
+store.list_tasks()
+store.delete_task("daily_report")
+```
+
+Pass a custom backend (e.g., Redis-backed cache) for persistence across restarts:
+
+```python
+from langdeep.core.cache import cache_registry
+
+redis_cache = cache_registry.get_backend("redis_cache")
+store = TaskStore(backend=redis_cache)
+```
+
+### 12.9 AuditLog
+
+`AuditLog` records execution history with automatic purging:
+
+```python
+from langdeep.core.scheduling import AuditLog
+
+audit = AuditLog(max_entries=1000)
+audit.log_start("task_1")
+audit.log_complete("task_1", "success")
+audit.log_failure("task_2", "timeout")
+
+history = audit.get_history()       # All entries (newest first)
+stats = audit.get_stats()           # {total, successes, failures, ...}
+audit.purge_old(keep_last=500)      # Trim to latest N entries
+```
+
+### 12.10 Scheduler Configuration Example
+
+```python
+scheduler = TaskScheduler(
+    orchestrator,
+    task_store=TaskStore(),
+    worker_pool=WorkerPool(max_workers=4),
+    audit_log=AuditLog(max_entries=1000),
+    auto_recover=True,           # Recover tasks on start()
+    graceful_timeout=15,         # Seconds to wait for running tasks on stop()
+)
+scheduler.start()
+```
+
+On `start()`, the scheduler automatically recovers tasks from the `TaskStore`. On `stop()`, it performs graceful shutdown via `WorkerPool.shutdown(wait=True, timeout=graceful_timeout)`.
+
+---
+
+## 13. IM Integration
+
+LangDeep provides a decorator-driven IM (Instant Messaging) integration system, allowing you to register message handlers for various IM platforms (WeCom, DingTalk, Feishu, Slack, custom).
+
+### 13.1 Message Models
+
+```python
+from langdeep.core.im import IMMessage, IMText, IMImage, IMInteractive, IMEvent
+from langdeep.core.im import MessageType, PlatformType
+
+# Message types
+class MessageType(Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    INTERACTIVE = "interactive"  # Buttons, forms, etc.
+    EVENT = "event"              # Webhook events (subscribe, enter, etc.)
+
+# Platform types
+class PlatformType(Enum):
+    WECOM = "wecom"
+    DINGTALK = "dingtalk"
+    FEISHU = "feishu"
+    SLACK = "slack"
+    CUSTOM = "custom"
+
+# Event model received from IM platform
+class IMEvent:
+    channel: str             # Channel name
+    platform: PlatformType   # Source platform
+    message: IMMessage       # Parsed message content
+    raw_payload: dict        # Original webhook payload
+```
+
+### 13.2 Platform Adapter Interface
+
+`IMPlatformAdapter` provides platform-specific parsing, validation, and response formatting:
+
+```python
+class IMPlatformAdapter(ABC):
+    def parse_payload(self, raw_payload: dict) -> IMEvent:
+        """Convert raw webhook payload to IMEvent."""
+        ...
+
+    def validate_signature(self, request: Any) -> bool:
+        """Verify webhook request signature."""
+        ...
+
+    def format_response(self, text: str, original_event: IMEvent) -> dict:
+        """Format response payload for the platform."""
+        ...
+
+    def create_reply(self, text: str, original_event: IMEvent) -> dict:
+        """Shortcut for creating a text reply."""
+        ...
+```
+
+### 13.3 Channel Registration via `@im_channel`
+
+```python
+from langdeep import im_channel
+from langdeep.core.im import IMEvent
+
+@im_channel(
+    name="helpdesk",
+    platform="wecom",
+    description="Customer service help desk",
+    adapter=None,  # Optional platform adapter instance
+)
+def handle_helpdesk(event: IMEvent) -> str:
+    """Process incoming message and return response text."""
+    return f"已收到您的消息: {event.message.content}"
+```
+
+**`@im_channel` reference:**
+
+```python
+@im_channel(
+    name: Optional[str] = None,    # Channel name (defaults to function name)
+    platform: str = "custom",      # Platform type string
+    description: str = "",          # Human-readable description
+    adapter: Optional[Any] = None, # Platform adapter instance
+)
+```
+
+### 13.4 IMChannelRegistry
+
+```python
+from langdeep.core.im import im_channel_registry
+
+# List registered channels
+channels = im_channel_registry.list_channels()
+# [{"name": "helpdesk", "platform": "wecom", "description": "...", ...}]
+
+# Dispatch an event to the matching channel handler
+response = im_channel_registry.dispatch("helpdesk", event)
+
+# Connect orchestrator for agent-based responses
+im_channel_registry.connect_orchestrator(
+    "helpdesk", orchestrator, supervisor_model="gpt4o"
+)
+```
+
+When an orchestrator is connected, the channel handler receives the orchestrator's response to the user's message.
+
+### 13.5 WebhookReceiver
+
+The `WebhookReceiver` provides a framework-agnostic webhook endpoint:
+
+```python
+from langdeep.core.im import WebhookReceiver
+
+receiver = WebhookReceiver(secret_token="your-secret")
+
+# Register a handler for a specific platform
+@receiver.handler("wecom")
+def handle_wecom(event: IMEvent) -> str:
+    return f"Echo: {event.message.content}"
+
+# Process incoming webhook requests
+response = receiver.handle_request(
+    platform="wecom",
+    body=request_body,
+    headers=request_headers,
+)
+```
+
+**Framework adapters (optional):**
+
+```python
+from langdeep.core.im.webhook import create_flask_blueprint, create_fastapi_router
+
+# Flask
+flask_bp = create_flask_blueprint(receiver, url_prefix="/webhook")
+app.register_blueprint(flask_bp)
+
+# FastAPI
+fastapi_router = create_fastapi_router(receiver, prefix="/webhook")
+app.include_router(fastapi_router)
+```
+
+### 13.6 IM Configuration Example
+
+```python
+from langdeep import im_channel
+from langdeep.core.im import WebhookReceiver, IMEvent
+
+# 1. Register a channel
+@im_channel(name="bot", platform="dingtalk", description="DingTalk bot")
+def dingtalk_bot(event: IMEvent) -> str:
+    return f"Received: {event.message.content}"
+
+# 2. Set up webhook receiver
+receiver = WebhookReceiver(secret_token="your-dingtalk-secret")
+
+@receiver.handler("dingtalk")
+def handle_dingtalk(event: IMEvent) -> str:
+    return dingtalk_bot(event)
+
+# 3. Create FastAPI router
+from fastapi import FastAPI
+from langdeep.core.im.webhook import create_fastapi_router
+
+app = FastAPI()
+app.include_router(create_fastapi_router(receiver, prefix="/webhook"))
 ```
 
 ---
 
-## 13. Error Handling
+## 14. Error Handling
 
-### 13.1 Error Hierarchy
+### 14.1 Error Hierarchy
 
 All exceptions inherit from `LangDeepError`:
 
@@ -1092,7 +1482,7 @@ LangDeepError
     └── PromptNotFoundError
 ```
 
-### 13.2 Error Format
+### 14.2 Error Format
 
 Every error carries structured context:
 
@@ -1115,7 +1505,7 @@ Example error output:
   | cause=ModelNotFoundError("[MODEL_NOT_FOUND] Model 'gpt5' is not registered ...")
 ```
 
-### 13.3 Retry Behavior
+### 14.3 Retry Behavior
 
 **Agent nodes** (direct routing): Exponential backoff retry, default 3 attempts:
 
@@ -1150,7 +1540,7 @@ ScheduledTask(
 )
 ```
 
-### 13.4 Graceful Degradation
+### 14.4 Graceful Degradation
 
 | Component | Failure behavior |
 |---|---|
@@ -1162,9 +1552,9 @@ ScheduledTask(
 
 ---
 
-## 14. Logging & Tracing
+## 15. Logging & Tracing
 
-### 14.1 Log Format
+### 15.1 Log Format
 
 All logs use structured `key=value` format:
 
@@ -1172,7 +1562,7 @@ All logs use structured `key=value` format:
 level=INFO logger=langdeep.core.orchestrator.orchestrator trace_id=abc123 req_id=def456 input_preview=Hello msg="Orchestrator ainvoke start"
 ```
 
-### 14.2 Configuring Log Level
+### 15.2 Configuring Log Level
 
 ```python
 from langdeep.core.logging import configure
@@ -1187,7 +1577,7 @@ handler = logging.StreamHandler(sys.stderr)
 configure(level=logging.INFO, handler=handler)
 ```
 
-### 14.3 Getting a Logger
+### 15.3 Getting a Logger
 
 ```python
 from langdeep import get_logger
@@ -1198,7 +1588,7 @@ logger.info("Something happened", extra={"key": "value"})
 
 Extra dict values appear in the log output as `key=value` pairs.
 
-### 14.4 Tracing
+### 15.4 Tracing
 
 Trace IDs and request IDs are automatically set per invocation:
 
@@ -1216,9 +1606,9 @@ clear_trace_context()
 
 ---
 
-## 15. API Reference
+## 16. API Reference
 
-### 15.1 FlowOrchestrator
+### 16.1 FlowOrchestrator
 
 ```python
 class FlowOrchestrator:
@@ -1238,6 +1628,7 @@ class FlowOrchestrator:
         plan_generator: Optional[PlanGenerator] = None,
         task_runner: Optional[TaskRunner] = None,
         result_merger: Optional[ResultMerger] = None,
+        memory: Optional[str] = None,  # Named memory backend (from @memory decorator)
     )
 
     # Synchronous execution
@@ -1270,7 +1661,7 @@ class FlowOrchestrator:
     def graph(self)  # Compiled LangGraph StateGraph
 ```
 
-### 15.2 Decorators
+### 16.2 Decorators
 
 ```python
 @model(
@@ -1314,7 +1705,37 @@ class FlowOrchestrator:
 )
 ```
 
-### 15.3 RoutingStrategy (ABC)
+```python
+@memory(
+    name: Optional[str] = None,    # Registry key (defaults to function name)
+    description: str = "",          # Human-readable description
+    **kwargs,                       # Extra metadata
+)
+# Factory returns BaseMemoryBackend or None (uses InMemoryBackend)
+```
+
+```python
+@cache(
+    name: Optional[str] = None,    # Registry key (defaults to function name)
+    ttl: Optional[int] = 300,      # Default TTL in seconds
+    max_entries: int = 1024,       # LRU max entries
+    description: str = "",          # Human-readable description
+    **kwargs,                       # Extra metadata
+)
+# Factory returns BaseCacheBackend or None (uses MemoryCache)
+```
+
+```python
+@im_channel(
+    name: Optional[str] = None,    # Channel name (defaults to function name)
+    platform: str = "custom",      # Platform type string
+    description: str = "",          # Human-readable description
+    adapter: Optional[Any] = None, # Platform adapter instance
+)
+# Handler signature: (event: IMEvent) -> str
+```
+
+### 16.3 RoutingStrategy (ABC)
 
 ```python
 class RoutingStrategy(ABC):
@@ -1328,7 +1749,7 @@ class RoutingStrategy(ABC):
         ...
 ```
 
-### 15.4 PlanGenerator (ABC)
+### 16.4 PlanGenerator (ABC)
 
 ```python
 class PlanGenerator(ABC):
@@ -1342,7 +1763,7 @@ class PlanGenerator(ABC):
         ...
 ```
 
-### 15.5 TaskRunner (ABC)
+### 16.5 TaskRunner (ABC)
 
 ```python
 class TaskRunner(ABC):
@@ -1369,7 +1790,7 @@ class TaskRunner(ABC):
         ...
 ```
 
-### 15.6 ResultMerger (ABC)
+### 16.6 ResultMerger (ABC)
 
 ```python
 class ResultMerger(ABC):
@@ -1383,7 +1804,7 @@ class ResultMerger(ABC):
         ...
 ```
 
-### 15.7 ExecutionPolicy
+### 16.7 ExecutionPolicy
 
 ```python
 @dataclass
@@ -1401,7 +1822,7 @@ class ExecutionPolicy:
     def to_dict(self) -> Dict[str, Any]: ...
 ```
 
-### 15.8 WorkflowPlanner
+### 16.8 WorkflowPlanner
 
 ```python
 class WorkflowPlanner:
@@ -1414,7 +1835,7 @@ class WorkflowPlanner:
     def estimate_duration(self, nodes: List[WorkflowNode]) -> int
 ```
 
-### 15.9 WorkflowNode
+### 16.9 WorkflowNode
 
 ```python
 @dataclass
@@ -1430,7 +1851,7 @@ class WorkflowNode:
     priority: int = 0
 ```
 
-### 15.10 Registries
+### 16.10 Registries
 
 ```python
 # Model registry (module-level singleton)
@@ -1460,9 +1881,29 @@ from langdeep.core.registry.model_registry import provider_registry
 provider_registry.register(provider_name: str, factory: Callable) -> None
 provider_registry.get_provider(provider_name: str) -> Callable  # Raises ProviderNotFoundError
 provider_registry.list_providers() -> List[str]
+
+# Memory registry (module-level singleton)
+from langdeep.core.memory import memory_registry
+memory_registry.register(name: str, factory: Callable, metadata: dict) -> None
+memory_registry.get_backend(name: str) -> BaseMemoryBackend     # Raises ConfigurationError
+memory_registry.list_backends() -> List[str]
+memory_registry.get_metadata(name: str) -> Optional[dict]
+
+# Cache registry (module-level singleton)
+from langdeep.core.cache import cache_registry
+cache_registry.register(name: str, factory: Callable, metadata: dict) -> None
+cache_registry.get_backend(name: str) -> BaseCacheBackend       # Raises ConfigurationError
+cache_registry.list_backends() -> List[str]
+
+# IM channel registry (module-level singleton)
+from langdeep.core.im import im_channel_registry
+im_channel_registry.register_channel(name, handler, platform, description, adapter=None) -> None
+im_channel_registry.dispatch(channel_name: str, event: IMEvent) -> str
+im_channel_registry.list_channels() -> List[dict]
+im_channel_registry.connect_orchestrator(channel_name, orchestrator, supervisor_model) -> None
 ```
 
-### 15.11 Result Helpers
+### 16.11 Result Helpers
 
 ```python
 from langdeep.core.orchestrator.executor import ok, err
@@ -1473,9 +1914,9 @@ err("failed")      # {"success": False, "data": "", "error": "failed"}
 
 ---
 
-## 16. Extension Points
+## 17. Extension Points
 
-### 16.1 Custom Graph Nodes
+### 17.1 Custom Graph Nodes
 
 Add arbitrary LangGraph nodes to the orchestrator's graph:
 
@@ -1493,7 +1934,7 @@ orchestrator = FlowOrchestrator(
 
 Custom nodes are connected: `supervisor --conditional--> custom_node` and `custom_node --> aggregator`.
 
-### 16.2 Custom PlanGenerator
+### 17.2 Custom PlanGenerator
 
 ```python
 from langdeep import PlanGenerator
@@ -1521,7 +1962,7 @@ orchestrator = FlowOrchestrator(
 )
 ```
 
-### 16.3 Custom TaskRunner
+### 17.3 Custom TaskRunner
 
 ```python
 from langdeep import TaskRunner, ok, err
@@ -1548,7 +1989,7 @@ orchestrator = FlowOrchestrator(
 )
 ```
 
-### 16.4 Custom ResultMerger
+### 17.4 Custom ResultMerger
 
 ```python
 from langdeep import ResultMerger
@@ -1580,9 +2021,9 @@ orchestrator = FlowOrchestrator(
 
 ---
 
-## 17. Best Practices
+## 18. Best Practices
 
-### 17.1 Project Structure
+### 18.1 Project Structure
 
 ```
 my_ai_project/
@@ -1608,14 +2049,14 @@ my_ai_project/
 └── execution_policy.json      # Optional policy file
 ```
 
-### 17.2 Model Naming Conventions
+### 18.2 Model Naming Conventions
 
 - Use a consistent naming scheme: `provider_model_variant` (e.g., `deepseek_v4_pro`, `openai_gpt4o`)
 - Keep `name` (registry key) and `model_name` (API identifier) distinct
 - Put API keys in environment variables, never hardcode them in `@model` decorators
 - Use `extra_params` for provider-specific options (timeout, api_version, etc.)
 
-### 17.3 Agent Design
+### 18.3 Agent Design
 
 - **Single responsibility:** Each agent should do one thing well
 - **Descriptive routing keywords:** Include common user phrasings that should trigger this agent
@@ -1623,21 +2064,21 @@ my_ai_project/
 - **Priority levels:** Higher numbers run first in `priority_queue` strategy
 - **Factory functions should be lightweight:** The factory is called once and cached. Don't put heavy initialization outside the factory.
 
-### 17.4 Plan Design
+### 18.4 Plan Design
 
 - **Keep tasks coarse-grained:** Each task should be a meaningful unit of work, not a single API call
 - **Minimize dependencies:** Only declare `depends_on` when truly required. The more dependencies, the less parallelism.
 - **Use parallel markers:** Mark truly independent tasks with `"parallel": true`
 - **Provide fallback plans:** For production, register a well-designed fallback plan instead of relying on `FallbackPlanGenerator`
 
-### 17.5 Provider Factories
+### 18.5 Provider Factories
 
 - **Always pop custom keys from `extra_params`** before passing to the LLM constructor to avoid duplicate keyword errors
 - **Make a copy of `extra_params`** with `dict()` to avoid mutating the config's original dict
 - **Use `ProviderImportError`** for missing optional packages
 - **Validate required credentials** early and raise clear `ValueError`
 
-### 17.6 Error Handling
+### 18.6 Error Handling
 
 - Catch `OrchestrationError` at the top level of your application
 - Use `e.to_dict()` for logging structured error data
@@ -1646,9 +2087,9 @@ my_ai_project/
 
 ---
 
-## 18. Troubleshooting
+## 19. Troubleshooting
 
-### 18.1 Model Not Registered
+### 19.1 Model Not Registered
 
 **Symptom:**
 ```
@@ -1663,7 +2104,7 @@ ModelNotFoundError: [MODEL_NOT_FOUND] Model 'my_model' is not registered
 3. **Import error in the file.** Check logs for `Module load failed` messages — a bad import prevents the whole module from loading.
 4. **Wrong model name in code.** Verify the name matches exactly: `@model(name="my_model")` → `supervisor_model="my_model"`.
 
-### 18.2 Module Load Failed
+### 19.2 Module Load Failed
 
 **Symptom:**
 ```
@@ -1676,7 +2117,7 @@ ERROR ... component_module=models.my_model error=No module named 'langdeep.regis
 - `from langdeep.core.registry.model_registry import ModelConfig` (not `langdeep.registry`)
 - `from langdeep import model, agent, provider, regist_tool` (top-level exports)
 
-### 18.3 Duplicate Keyword Argument
+### 19.3 Duplicate Keyword Argument
 
 **Symptom:**
 ```
@@ -1693,7 +2134,7 @@ request_timeout = extra.pop("request_timeout", 90)
 # Now **extra no longer contains request_timeout
 ```
 
-### 18.4 Tool Call Not Supported
+### 19.4 Tool Call Not Supported
 
 **Symptom:**
 ```
@@ -1707,7 +2148,7 @@ Error code: 400 - {'error': {'message': 'deepseek-reasoner does not support this
 2. If using DeepSeek V4, ensure non-thinking mode is active when making tool calls
 3. As a workaround, remove `tool_choice="required"` from the router (the `_parse_tool_call` function handles text responses as fallback)
 
-### 18.5 Missing API Key
+### 19.5 Missing API Key
 
 **Symptom:**
 ```
@@ -1723,7 +2164,7 @@ Or pass it in the decorator (not recommended for production):
 @model(name="my_model", provider="deepseek", api_key="sk-...")
 ```
 
-### 18.6 Agent Returns "No Answer"
+### 19.6 Agent Returns "No Answer"
 
 **Symptom:**
 ```
@@ -1736,7 +2177,7 @@ Or pass it in the decorator (not recommended for production):
 2. No agent was matched — add more routing keywords or check if the user input is handled
 3. Agent ran but returned empty output — check the agent's implementation
 
-### 18.7 Tasks Not Running in Parallel
+### 19.7 Tasks Not Running in Parallel
 
 **Symptom:** Tasks that should run in parallel are executing sequentially.
 
@@ -1746,7 +2187,7 @@ Or pass it in the decorator (not recommended for production):
 3. Task `depends_on` — over-specifying dependencies prevents parallel execution
 4. The plan's `"parallel"` markers — the planner might have set them to `false`
 
-### 18.8 Getting Help
+### 19.8 Getting Help
 
 Check logs for structured error context:
 ```
