@@ -53,6 +53,11 @@ TEST_MODULES = [
     "test_memory",
     "test_cache",
     "test_im",
+    # v1.2.1 modules
+    "test_secrets",
+    "test_process",
+    "test_sandbox",
+    "test_observability",
     # Integration tests last
     "test_fuzz",
     "test_agent_capabilities",

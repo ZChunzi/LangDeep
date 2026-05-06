@@ -116,6 +116,8 @@ class FlowOrchestrator:
         result_merger: Optional[ResultMerger] = None,
         # Memory backend (name registered via @memory decorator)
         memory: Optional[str] = None,
+        # Process manager (optional, for long-running workflow lifecycle)
+        process_manager: Optional["ProcessManager"] = None,
     ):
         self._supervisor_model = supervisor_model
         self._max_retries = max_retries
@@ -192,6 +194,9 @@ class FlowOrchestrator:
             prompt_loader=self._prompt_loader,
         )
 
+        # Process manager (optional)
+        self._process_manager = process_manager
+
         self._graph = self._build_graph()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -263,6 +268,23 @@ class FlowOrchestrator:
             raise
         finally:
             clear_trace_context()
+
+    def health(self) -> Dict[str, Any]:
+        """Return a health-check summary of the orchestrator and its components."""
+        from ..observability import HealthChecker
+        checker = HealthChecker(version=self.__class__.__module__)
+        status = checker.check_all()
+        return {
+            "status": status.status,
+            "checks": status.checks,
+            "timestamp": status.timestamp.isoformat(),
+        }
+
+    def get_metrics(self) -> Dict[str, Any]:
+        """Return in-process metrics from the built-in collector."""
+        from ..observability import MetricsCollector
+        collector = MetricsCollector()
+        return collector.get_metrics()
 
     @property
     def graph(self):

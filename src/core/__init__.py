@@ -34,6 +34,31 @@ from .im import (
     PlatformType,
 )
 from .scheduling import WorkerPool, TaskStore, AuditLog
+from .sandbox import (
+    BaseSandbox,
+    SandboxResult,
+    SubprocessSandbox,
+    SandboxRegistry,
+    sandbox_registry,
+    sandbox,
+    SandboxError,
+    SandboxTimeoutError,
+    SandboxImportError,
+)
+from .process import (
+    ProcessState,
+    ProcessSignal,
+    Process,
+    SuspendSignal,
+    ProcessManager,
+)
+from .secrets import (
+    SecretsProvider,
+    EnvSecretsProvider,
+    SecretsManager,
+    secrets_manager,
+)
+from .observability import HealthStatus, HealthChecker, MetricsCollector
 
 __all__ = [
     "ExecutionPolicy",
@@ -68,4 +93,29 @@ __all__ = [
     "WorkerPool",
     "TaskStore",
     "AuditLog",
+    # Sandbox
+    "BaseSandbox",
+    "SandboxResult",
+    "SubprocessSandbox",
+    "SandboxRegistry",
+    "sandbox_registry",
+    "sandbox",
+    "SandboxError",
+    "SandboxTimeoutError",
+    "SandboxImportError",
+    # Process
+    "ProcessState",
+    "ProcessSignal",
+    "Process",
+    "SuspendSignal",
+    "ProcessManager",
+    # Secrets
+    "SecretsProvider",
+    "EnvSecretsProvider",
+    "SecretsManager",
+    "secrets_manager",
+    # Observability
+    "HealthStatus",
+    "HealthChecker",
+    "MetricsCollector",
 ]

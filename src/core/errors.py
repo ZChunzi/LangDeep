@@ -176,3 +176,24 @@ class TemplateNotFoundError(TemplateError):
 class PromptNotFoundError(TemplateError):
     """Prompt file not found."""
     code = "PROMPT_NOT_FOUND"
+
+
+# ── Sandbox errors ──────────────────────────────────────────────────────────────────
+
+class SandboxError(LangDeepError):
+    """Base for sandbox/execution-isolation errors."""
+    code = "SANDBOX_ERROR"
+
+
+# ── Process errors ──────────────────────────────────────────────────────────────────
+
+class ProcessError(LangDeepError):
+    """Base for process management errors."""
+    code = "PROCESS_ERROR"
+
+
+# ── Secrets errors ──────────────────────────────────────────────────────────────────
+
+class SecretsError(LangDeepError):
+    """Base for secrets management errors."""
+    code = "SECRETS_ERROR"

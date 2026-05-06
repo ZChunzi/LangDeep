@@ -25,6 +25,8 @@ from langdeep.core.registry.tool_registry import tool_registry
 from langdeep.core.memory.registry import memory_registry
 from langdeep.core.cache.registry import cache_registry
 from langdeep.core.im.registry import im_channel_registry
+from langdeep.core.sandbox.registry import sandbox_registry
+from langdeep.core.secrets.manager import secrets_manager
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -38,6 +40,8 @@ _INTERNAL_REGISTRY_ATTRS = {
     "memory_registry": ("_factories", "_metadata", "_instances"),
     "cache_registry": ("_factories", "_metadata", "_instances"),
     "im_channel_registry": ("_channels", "_adapters"),
+    "sandbox_registry": ("_backends", "_metadata", "_factory"),
+    "secrets_manager": ("_providers",),
 }
 
 
@@ -45,6 +49,9 @@ def clean_registries():
     """Reset all singleton registries to pristine state (for test isolation)."""
     for reg_name, attrs in _INTERNAL_REGISTRY_ATTRS.items():
         reg = globals()[reg_name]
+        if reg_name == "sandbox_registry":
+            reg.clear()  # clear() re-registers the built-in subprocess backend
+            continue
         for attr in attrs:
             try:
                 getattr(reg, attr).clear()

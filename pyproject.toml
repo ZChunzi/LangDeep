@@ -59,6 +59,10 @@ packages = [
     "langdeep.core.memory",
     "langdeep.core.cache",
     "langdeep.core.im",
+    "langdeep.core.sandbox",
+    "langdeep.core.process",
+    "langdeep.core.secrets",
+    "langdeep.core.observability",
     "langdeep.schemas",
     "langdeep.utils",
 ]
