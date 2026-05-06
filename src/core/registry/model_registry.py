@@ -1,8 +1,9 @@
 """Model registry with dynamic provider registration."""
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 from dataclasses import dataclass, field
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import BaseMessage
 
 from ..logging import get_logger
 from ..errors import (
@@ -10,6 +11,7 @@ from ..errors import (
     ProviderNotFoundError,
     ProviderImportError,
 )
+from ..cache import MemoryCache, BaseCacheBackend
 
 logger = get_logger(__name__)
 
@@ -229,12 +231,14 @@ class ModelRegistry:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._provider_registry = ProviderRegistry()
+            # Replace unbounded _instances with LRU cache
+            cls._instance._instance_cache: MemoryCache = MemoryCache(max_size=16)
+            cls._instance._response_cache: BaseCacheBackend = MemoryCache(max_size=0)  # disabled by default
         return cls._instance
 
     def register(self, name: str, config: ModelConfig) -> None:
         self._models[name] = config
-        if name in self._instances:
-            del self._instances[name]
+        self._instance_cache.delete(name)
         logger.info("Model registered", extra={"model_name": name, "provider": config.provider})
 
     def get_model(self, name: str) -> BaseChatModel:
@@ -243,11 +247,13 @@ class ModelRegistry:
                 f"Model '{name}' is not registered",
                 context={"available": list(self._models.keys())},
             )
-        if name not in self._instances:
+        instance = self._instance_cache.get(name)
+        if instance is None:
             config = self._models[name]
-            self._instances[name] = self._create_instance(config)
+            instance = self._create_instance(config)
+            self._instance_cache.set(name, instance)
             logger.debug("Model instance created", extra={"model_name": name})
-        return self._instances[name]
+        return instance
 
     def _create_instance(self, config: ModelConfig) -> BaseChatModel:
         factory = self._provider_registry.get_provider(config.provider)
@@ -259,6 +265,53 @@ class ModelRegistry:
     @property
     def provider_registry(self) -> ProviderRegistry:
         return self._provider_registry
+
+    # ── Response caching (opt-in) ──────────────────────────────────────────────
+
+    def enable_response_cache(
+        self,
+        ttl: int = 300,
+        max_entries: int = 1024,
+        disk_path: Optional[str] = None,
+    ) -> None:
+        """Enable LLM response caching (off by default — changes LLM semantics)."""
+        self._response_cache = MemoryCache(max_size=max_entries, default_ttl=ttl)
+        logger.info("LLM response cache enabled", extra={"ttl": ttl, "max_entries": max_entries})
+
+    def disable_response_cache(self) -> None:
+        self._response_cache.clear()
+        self._response_cache = MemoryCache(max_size=0)
+        logger.info("LLM response cache disabled")
+
+    def set_response_cache(self, backend: BaseCacheBackend) -> None:
+        """Use a custom cache backend for LLM responses."""
+        self._response_cache = backend
+        logger.info("LLM response cache set", extra={"backend": type(backend).__name__})
+
+    def invoke_with_cache(self, model_name: str, messages: Sequence[BaseMessage], **kwargs) -> Any:
+        """Invoke a model with response caching (cache is checked on hit, populated on miss).
+
+        Only active when response cache is enabled (see ``enable_response_cache``).
+        """
+        import hashlib, json
+
+        llm = self.get_model(model_name)
+
+        # Compute cache key
+        serialized = json.dumps(
+            [{"role": m.type, "content": str(m.content)} for m in messages],
+            default=str,
+        )
+        key = f"{model_name}:{hashlib.sha256(serialized.encode()).hexdigest()[:32]}"
+
+        cached = self._response_cache.get(key)
+        if cached is not None:
+            logger.debug("LLM cache hit", extra={"model": model_name})
+            return cached
+
+        result = llm.invoke(messages, **kwargs)
+        self._response_cache.set(key, result)
+        return result
 
 
 # Global singletons

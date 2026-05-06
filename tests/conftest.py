@@ -22,6 +22,9 @@ from langdeep import FlowOrchestrator, ExecutionPolicy, RoutingStrategy
 from langdeep.core.registry.model_registry import model_registry, ModelConfig
 from langdeep.core.registry.agent_registry import agent_registry, AgentMetadata
 from langdeep.core.registry.tool_registry import tool_registry
+from langdeep.core.memory.registry import memory_registry
+from langdeep.core.cache.registry import cache_registry
+from langdeep.core.im.registry import im_channel_registry
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -31,7 +34,10 @@ from langdeep.core.registry.tool_registry import tool_registry
 _INTERNAL_REGISTRY_ATTRS = {
     "agent_registry": ("_agents", "_metadata", "_factories"),
     "tool_registry": ("_tools", "_metadata"),
-    "model_registry": ("_models", "_instances"),
+    "model_registry": ("_models", "_instance_cache"),
+    "memory_registry": ("_factories", "_metadata", "_instances"),
+    "cache_registry": ("_factories", "_metadata", "_instances"),
+    "im_channel_registry": ("_channels", "_adapters"),
 }
 
 
@@ -54,11 +60,11 @@ def populate_minimal_registries():
     # Register mock model
     if "gpt4o" not in model_registry.list_models():
         model_registry.register("gpt4o", ModelConfig(provider="mock", model_name="gpt4o"))
-        model_registry._instances["gpt4o"] = SmartMockLLM(model_name="gpt4o")
+        model_registry._instance_cache.set("gpt4o", SmartMockLLM(model_name="gpt4o"))
 
     if "deepseek_chat" not in model_registry.list_models():
         model_registry.register("deepseek_chat", ModelConfig(provider="mock", model_name="deepseek-chat"))
-        model_registry._instances["deepseek_chat"] = SmartMockLLM(model_name="deepseek-chat")
+        model_registry._instance_cache.set("deepseek_chat", SmartMockLLM(model_name="deepseek-chat"))
 
     # Register a test tool
     if "test_tool" not in tool_registry.list_tools():
@@ -205,7 +211,7 @@ def orch(**kw) -> FlowOrchestrator:
     for name in [kw.get("supervisor_model", "gpt4o"), "deepseek_chat"]:
         if name not in model_registry.list_models():
             model_registry.register(name, ModelConfig(provider="mock", model_name=name))
-        model_registry._instances[name] = _mock()
+        model_registry._instance_cache.set(name, _mock())
     return o
 
 

@@ -19,6 +19,7 @@ from langdeep.core.decorators.model import model
 from langdeep.core.decorators.tool import regist_tool
 from langdeep.core.decorators.agent import agent
 from langdeep.core.decorators.provider import provider
+from langdeep.core.decorators import memory, cache, im_channel
 from langdeep.core.execution.execution_policy import ExecutionPolicy
 from langdeep.core.planner import WorkflowPlanner, WorkflowNode, NodeType
 from langdeep.core.errors import (
@@ -56,6 +57,9 @@ __all__ = [
     "regist_tool",
     "agent",
     "provider",
+    "memory",
+    "cache",
+    "im_channel",
     # Execution
     "ExecutionPolicy",
     # Planner
@@ -78,4 +82,4 @@ __all__ = [
     "set_trace_context",
     "get_trace_id",
 ]
-__version__ = "1.1.0"
+__version__ = "1.2.0"

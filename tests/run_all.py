@@ -49,6 +49,10 @@ TEST_MODULES = [
     "test_task_scheduler",
     "test_orchestrator",
     "test_orchestrator_edge",
+    # New modules
+    "test_memory",
+    "test_cache",
+    "test_im",
     # Integration tests last
     "test_fuzz",
     "test_agent_capabilities",

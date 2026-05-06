@@ -114,6 +114,8 @@ class FlowOrchestrator:
         plan_generator: Optional[PlanGenerator] = None,
         task_runner: Optional[TaskRunner] = None,
         result_merger: Optional[ResultMerger] = None,
+        # Memory backend (name registered via @memory decorator)
+        memory: Optional[str] = None,
     ):
         self._supervisor_model = supervisor_model
         self._max_retries = max_retries
@@ -131,6 +133,22 @@ class FlowOrchestrator:
             self._checkpointer = MemorySaver()
         else:
             self._checkpointer = None
+
+        # Memory backend (optional, for conversation persistence)
+        self._memory_backend: Optional[Any] = None
+        if memory is not None:
+            try:
+                from ..memory.registry import memory_registry
+                self._memory_backend = memory_registry.get_backend(memory)
+                logger.info(
+                    "Memory backend configured",
+                    extra={"memory_backend": memory},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load memory backend",
+                    extra={"memory": memory, "error": str(exc)},
+                )
 
         # Auto-import component modules
         self._auto_import(
