@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langdeep"
-version = "1.2.3"
+version = "1.2.4"
 description = "LangChain + LangGraph Agent Workflow Framework"
 readme = "README.md"
 license = "MIT"
@@ -48,7 +48,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/ZChunzi/langdeep"
+Repository = "https://github.com/ZChunzi/LangDeep"
 
 [tool.setuptools]
 package-dir = {"langdeep" = "src"}
@@ -94,7 +94,7 @@ line-length = 100
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-# v1.2.3 starts with correctness-focused lint gates that catch syntax/name
+# v1.2.4 keeps correctness-focused lint gates that catch syntax/name
 # errors without forcing a full historical style cleanup in the same release.
 select = ["E9", "F63", "F7", "F82"]
 
