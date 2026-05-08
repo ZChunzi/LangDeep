@@ -1,90 +1,116 @@
-"""Provider registration decorator for dynamic model provider registration.
+"""Provider registration helpers.
 
-This decorator allows registering new model providers without modifying
-the core model_registry.py file.
+This module exposes both decorator-style and function-style APIs for
+registering model providers without touching the core registry.
 
-Usage:
-    @provider(name="deepseek")
-    def create_deepseek_model(config: ModelConfig) -> BaseChatModel:
-        # Implementation using DeepSeek SDK
-        from langchain_openai import ChatOpenAI
-        base_url = config.base_url or "https://api.deepseek.com"
-        return ChatOpenAI(
-            model=config.model_name,
-            base_url=base_url,
-            api_key=config.api_key,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-            **(config.extra_params or {})
-        )
+Examples:
+    @provider(name="my_provider")
+    def create_model(config: ModelConfig) -> BaseChatModel:
+        ...
 
-    # Then register models using this provider
-    @model(name="my_deepseek", provider="deepseek", model_name="deepseek-chat")
-    def my_deepseek_model(): pass
+    def create_model(config: ModelConfig) -> BaseChatModel:
+        ...
+    register_provider("my_provider", create_model)
 """
 
 from functools import wraps
-from typing import Optional, Callable
-from ..registry.model_registry import provider_registry, ModelConfig
+from typing import Callable, Optional, TypeVar, Union, overload
+
 from langchain_core.language_models import BaseChatModel
+
+from ..registry.model_registry import ModelConfig, provider_registry
+
+ProviderFactory = Callable[[ModelConfig], BaseChatModel]
+F = TypeVar("F", bound=ProviderFactory)
+
+
+@overload
+def register_provider(name: str, factory: F) -> F:
+    ...
+
+
+@overload
+def register_provider(name: str) -> Callable[[F], F]:
+    ...
+
+
+def register_provider(
+    name: str,
+    factory: Optional[F] = None,
+) -> Union[F, Callable[[F], F]]:
+    """Register a model provider factory.
+
+    This is the function-style companion to ``@provider`` and is exported at
+    ``langdeep.register_provider`` for README/API compatibility.
+
+    Args:
+        name: Provider name used by ``@model(provider=...)``.
+        factory: Callable that receives ``ModelConfig`` and returns a chat model.
+
+    Returns:
+        The original factory, so it can also be used as a decorator.
+    """
+
+    def decorator(func: F) -> F:
+        provider_registry.register(name, func)
+        return func
+
+    if factory is None:
+        return decorator
+    return decorator(factory)
 
 
 def provider(name: Optional[str] = None):
-    """
-    Provider registration decorator
+    """Decorator for registering a model provider factory.
 
     Args:
-        name: Provider name (defaults to function name)
-
-    Returns:
-        Decorator function
+        name: Provider name. Defaults to the wrapped function name.
     """
-    def decorator(func: Callable[[ModelConfig], BaseChatModel]):
-        provider_name = name or func.__name__
 
-        # Register the factory function
-        provider_registry.register(provider_name, func)
+    def decorator(func: F) -> F:
+        provider_name = name or func.__name__
+        register_provider(provider_name, func)
 
         @wraps(func)
         def wrapper(config: ModelConfig) -> BaseChatModel:
             return func(config)
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 
 
-# Pre-defined provider decorators for common providers
-def openai_provider(func: Callable[[ModelConfig], BaseChatModel]):
-    """Decorator for OpenAI provider (pre-defined)"""
+# Pre-defined provider decorators for common providers.
+def openai_provider(func: F) -> F:
+    """Decorator for overriding the OpenAI provider."""
     return provider("openai")(func)
 
 
-def anthropic_provider(func: Callable[[ModelConfig], BaseChatModel]):
-    """Decorator for Anthropic provider (pre-defined)"""
+def anthropic_provider(func: F) -> F:
+    """Decorator for overriding the Anthropic provider."""
     return provider("anthropic")(func)
 
 
-def azure_provider(func: Callable[[ModelConfig], BaseChatModel]):
-    """Decorator for Azure OpenAI provider"""
+def azure_provider(func: F) -> F:
+    """Decorator for overriding the Azure OpenAI provider."""
     return provider("azure_openai")(func)
 
 
-def ollama_provider(func: Callable[[ModelConfig], BaseChatModel]):
-    """Decorator for Ollama provider"""
+def ollama_provider(func: F) -> F:
+    """Decorator for overriding the Ollama provider."""
     return provider("ollama")(func)
 
 
-def vertexai_provider(func: Callable[[ModelConfig], BaseChatModel]):
-    """Decorator for Google Vertex AI provider"""
+def vertexai_provider(func: F) -> F:
+    """Decorator for overriding the Google Vertex AI provider."""
     return provider("vertexai")(func)
 
 
-def google_genai_provider(func: Callable[[ModelConfig], BaseChatModel]):
-    """Decorator for Google Generative AI provider"""
+def google_genai_provider(func: F) -> F:
+    """Decorator for overriding the Google Generative AI provider."""
     return provider("google_genai")(func)
 
 
-def deepseek_provider(func: Callable[[ModelConfig], BaseChatModel]):
-    """Decorator for DeepSeek provider"""
+def deepseek_provider(func: F) -> F:
+    """Decorator for overriding the DeepSeek provider."""
     return provider("deepseek")(func)
