@@ -43,3 +43,9 @@ checkpoints/
 # 操作系统
 .DS_Store
 Thumbs.db
+
+# 项目辅助目录 (非框架代码)
+workflows/
+.agents/
+.codex/
+.ruff_cache/

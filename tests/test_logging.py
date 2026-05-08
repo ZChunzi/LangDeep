@@ -76,3 +76,19 @@ def test_trace_in_log_output():
     assert "trace-456" in result
     assert "traced msg" in result
     clear_trace_context()
+
+
+def test_structured_formatter_redacts_sensitive_extras():
+    fmt = StructuredFormatter()
+    record = logging.LogRecord("test", logging.INFO, "file.py", 42, "msg", (), None)
+    record.api_key = "sk-live-secret"
+    record.password = "plain-password"
+    record.user = "alice"
+
+    result = fmt.format(record)
+
+    assert "api_key=[REDACTED]" in result
+    assert "password=[REDACTED]" in result
+    assert "sk-live-secret" not in result
+    assert "plain-password" not in result
+    assert "user=alice" in result

@@ -6,7 +6,7 @@ custom backends registered with the @cache decorator.
 
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from ..cache import BaseCacheBackend, MemoryCache
 from .models import ScheduledTask, TriggerType
@@ -77,23 +77,27 @@ class TaskStore:
     """
 
     def __init__(self, backend: Optional[BaseCacheBackend] = None):
-        self._backend = backend or MemoryCache()
+        self._backend = backend if backend is not None else MemoryCache()
         self._task_list_key = "_scheduled_tasks"
 
     def save_task(self, task: ScheduledTask) -> None:
         """Persist a single task."""
         key = f"task:{task.id}"
         self._backend.set(key, _serialize_task(task))
+        self._add_task_id(task.id)
 
     def delete_task(self, task_id: str) -> None:
         """Remove a task from storage."""
         self._backend.delete(f"task:{task_id}")
+        self._remove_task_id(task_id)
 
     def load_task(self, task_id: str) -> Optional[ScheduledTask]:
         """Load a single task by ID."""
         data = self._backend.get(f"task:{task_id}")
         if data is None:
             return None
+        if isinstance(data, str):
+            data = json.loads(data)
         if isinstance(data, dict):
             return _deserialize_task(data)
         return None
@@ -105,6 +109,8 @@ class TaskStore:
         keys = self._backend.get(self._task_list_key)
         if keys is None:
             return []
+        if isinstance(keys, str):
+            keys = json.loads(keys)
         tasks = []
         for task_id in keys:
             task = self.load_task(task_id)
@@ -122,10 +128,32 @@ class TaskStore:
 
     def count(self) -> int:
         keys = self._backend.get(self._task_list_key)
+        if isinstance(keys, str):
+            keys = json.loads(keys)
         return len(keys) if keys else 0
 
     def clear(self) -> None:
         keys = self._backend.get(self._task_list_key) or []
+        if isinstance(keys, str):
+            keys = json.loads(keys)
         for task_id in keys:
             self._backend.delete(f"task:{task_id}")
         self._backend.delete(self._task_list_key)
+
+    def _load_task_ids(self) -> List[str]:
+        keys = self._backend.get(self._task_list_key) or []
+        if isinstance(keys, str):
+            keys = json.loads(keys)
+        if not isinstance(keys, Iterable):
+            return []
+        return [str(task_id) for task_id in keys]
+
+    def _add_task_id(self, task_id: str) -> None:
+        keys = self._load_task_ids()
+        if task_id not in keys:
+            keys.append(task_id)
+            self._backend.set(self._task_list_key, keys)
+
+    def _remove_task_id(self, task_id: str) -> None:
+        keys = [existing for existing in self._load_task_ids() if existing != task_id]
+        self._backend.set(self._task_list_key, keys)

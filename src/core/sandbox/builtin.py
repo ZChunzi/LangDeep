@@ -29,6 +29,10 @@ _MAX_ARTIFACT_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 class SubprocessSandbox(BaseSandbox):
     """Sandbox that executes code in a subprocess with resource limits.
 
+    This backend is a local execution helper, not a hardened security boundary
+    for untrusted code. Use a container, VM, or dedicated remote sandbox backend
+    when executing untrusted user input.
+
     Features:
         - Subprocess isolation with configurable timeout
         - AST-based import whitelist checking
@@ -65,6 +69,14 @@ class SubprocessSandbox(BaseSandbox):
             raise ValueError(
                 f"Unsupported language '{language}'. "
                 f"Supported: {sorted(self.SUPPORTED_LANGUAGES)}"
+            )
+        if network_access:
+            raise SandboxError(
+                detail=(
+                    "SubprocessSandbox does not support network isolation or "
+                    "network access control. Use a container or VM sandbox backend."
+                ),
+                context={"network_access": network_access},
             )
 
         # ── Static import check (Python only) ─────────────────────────

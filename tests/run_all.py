@@ -11,16 +11,22 @@ LangDeep 测试运行器 — 一键运行所有单元测试和集成测试。
 """
 
 import argparse
+import asyncio
 import importlib
+import inspect
 import os
 import sys
+import tempfile
 import time
 import traceback
 from pathlib import Path
+from unittest.mock import patch
 
-# Ensure project root and tests dir are on path
-_project_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
+# Ensure package source, project root, and tests dir are on path.
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+_project_root = os.path.join(_repo_root, "src")
 sys.path.insert(0, os.path.abspath(_project_root))
+sys.path.insert(0, _repo_root)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # ── Test discovery ────────────────────────────────────────────────────
@@ -33,6 +39,8 @@ TEST_MODULES = [
     "test_logging",
     "test_tool_registry",
     "test_execution_policy",
+    "test_error_reexports",
+    "test_agent_builder",
     "test_agent_registry",
     "test_model_registry",
     "test_decorators",
@@ -46,6 +54,7 @@ TEST_MODULES = [
     "test_executor",
     "test_executor_edge",
     "test_workflow_planner",
+    "test_scheduling_infra",
     "test_task_scheduler",
     "test_orchestrator",
     "test_orchestrator_edge",
@@ -82,6 +91,60 @@ ERROR = 0
 RESULTS: list[dict] = []
 
 
+class SimpleMonkeyPatch:
+    """Small monkeypatch fixture compatible with tests/run_all.py.
+
+    This runner is intentionally lightweight; it supports the subset used by
+    LangDeep's local tests and restores patches after each test.
+    """
+
+    def __init__(self):
+        self._patchers = []
+
+    def setattr(self, target, name, value):
+        patcher = patch.object(target, name, value)
+        patcher.start()
+        self._patchers.append(patcher)
+
+    def undo(self):
+        while self._patchers:
+            self._patchers.pop().stop()
+
+
+def _build_call_args(fn):
+    kwargs = {}
+    cleanup = []
+    monkeypatch = None
+    for name, param in inspect.signature(fn).parameters.items():
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            continue
+        if name == "tmp_path":
+            tmp = tempfile.TemporaryDirectory()
+            cleanup.append(tmp.cleanup)
+            kwargs[name] = Path(tmp.name)
+        elif name == "monkeypatch":
+            monkeypatch = SimpleMonkeyPatch()
+            cleanup.append(monkeypatch.undo)
+            kwargs[name] = monkeypatch
+        else:
+            raise TypeError(f"Unsupported test fixture: {name}")
+    return kwargs, cleanup
+
+
+def _call_test(fn):
+    kwargs, cleanup = _build_call_args(fn)
+    try:
+        result = fn(**kwargs)
+        if inspect.isawaitable(result):
+            result = asyncio.run(result)
+        if result is False:
+            raise AssertionError("test returned False")
+        return result
+    finally:
+        for cleanup_fn in reversed(cleanup):
+            cleanup_fn()
+
+
 def run_test_module(module_name: str, verbosity: int = 1) -> bool:
     """Run all functions starting with 'test_' in the given module.
 
@@ -113,6 +176,10 @@ def run_test_module(module_name: str, verbosity: int = 1) -> bool:
     failed = 0
     module_start = time.perf_counter()
 
+    module_setup_fn = getattr(mod, "init_test_env", None)
+    if module_setup_fn:
+        module_setup_fn()
+
     setup_fn = getattr(mod, "setup_function", None)
     teardown_fn = getattr(mod, "teardown_function", None)
 
@@ -122,7 +189,7 @@ def run_test_module(module_name: str, verbosity: int = 1) -> bool:
         try:
             if setup_fn:
                 setup_fn()
-            fn()
+            _call_test(fn)
             elapsed = time.perf_counter() - test_start
             if verbosity > 0:
                 print(f"  ✅ {module_name}.{fn_name} ({elapsed:.2f}s)")

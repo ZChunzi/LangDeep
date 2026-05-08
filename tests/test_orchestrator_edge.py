@@ -8,6 +8,7 @@ import asyncio
 from langchain_core.messages import AIMessage, HumanMessage
 
 from langdeep import FlowOrchestrator, ExecutionPolicy, RoutingStrategy
+from langdeep.core.errors import ConfigurationError
 from langdeep.core.orchestrator.planner import PlanGenerator, FallbackPlanGenerator
 from langdeep.core.orchestrator.executor import TaskRunner, ok, err
 from langdeep.core.orchestrator.aggregator import ResultMerger
@@ -29,6 +30,23 @@ def test_invoke_empty_workflow_plan():
     # An empty list is falsy, so the planner generates a new plan
     result = o.invoke("test", workflow_plan=[])
     assert "messages" in result
+
+
+def test_strict_component_import_raises_on_broken_module(tmp_path):
+    """strict_component_import turns auto-import failures into startup errors."""
+    components = tmp_path / "agents"
+    components.mkdir()
+    (components / "broken.py").write_text("raise RuntimeError('broken component')\n")
+
+    try:
+        FlowOrchestrator(
+            enable_checkpoint=False,
+            component_dirs=[str(components)],
+            strict_component_import=True,
+        )
+        assert False, "Should have raised ConfigurationError"
+    except ConfigurationError as exc:
+        assert "broken" in str(exc.context)
 
 
 # ── No agents → routes to planner ───────────────────────────

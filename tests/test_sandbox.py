@@ -179,6 +179,16 @@ def test_subprocess_unsupported_language_raises():
         pass
 
 
+def test_subprocess_network_access_rejected():
+    """SubprocessSandbox rejects network_access instead of pretending to enforce it."""
+    sb = SubprocessSandbox()
+    try:
+        sb.run("print(1)", network_access=True)
+        assert False, "Should have raised SandboxError"
+    except SandboxError as exc:
+        assert "network" in exc.detail.lower()
+
+
 # ── SandboxRegistry ─────────────────────────────────────────────────────────
 
 

@@ -15,11 +15,19 @@ Trace IDs:
 import logging
 import uuid
 from contextvars import ContextVar
-from typing import Optional
+from typing import Any, Optional
 
 # ── Trace-ID context variable ────────────────────────────────────────────────────
 _trace_id: ContextVar[Optional[str]] = ContextVar("langdeep_trace_id", default=None)
 _request_id: ContextVar[Optional[str]] = ContextVar("langdeep_request_id", default=None)
+_SENSITIVE_EXTRA_KEYS = (
+    "api_key",
+    "authorization",
+    "credential",
+    "password",
+    "secret",
+    "token",
+)
 
 
 def set_trace_context(trace_id: Optional[str] = None) -> str:
@@ -73,7 +81,7 @@ class StructuredFormatter(logging.Formatter):
         }
         for key, value in sorted(extras.items()):
             if key not in standard and not key.startswith("_"):
-                parts.append(f"{key}={value}")
+                parts.append(f"{key}={_format_extra_value(key, value)}")
 
         parts.append(f"msg=\"{record.getMessage()}\"")
 
@@ -81,6 +89,17 @@ class StructuredFormatter(logging.Formatter):
             parts.append(f"exception={record.exc_info[1]!r}")
 
         return " ".join(parts)
+
+
+def _format_extra_value(key: str, value: Any) -> str:
+    """Format an extra log value, redacting sensitive fields."""
+    if any(marker in key.lower() for marker in _SENSITIVE_EXTRA_KEYS):
+        return "[REDACTED]"
+
+    rendered = str(value)
+    if not rendered or any(ch.isspace() for ch in rendered) or '"' in rendered:
+        return repr(rendered)
+    return rendered
 
 
 # ── Factory ──────────────────────────────────────────────────────────────────────

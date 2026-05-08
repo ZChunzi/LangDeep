@@ -6,7 +6,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langdeep.core.registry.agent_registry import agent_registry, AgentRegistry, AgentMetadata
 from langdeep.core.registry.tool_registry import tool_registry, ToolMetadata
-from langdeep.core.errors import AgentNotFoundError
+from langdeep.core.agent_builder import BaseAgentBuilder, agent_builder_registry
+from langdeep.core.errors import AgentBuildError, AgentNotFoundError
 from langchain_core.tools import tool as lc_tool
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -51,6 +52,41 @@ def test_get_agent_not_found():
         assert False, "Should raise"
     except AgentNotFoundError:
         pass
+
+
+def test_get_agent_factory_none_requires_auto_build():
+    agent_registry.register(
+        "empty",
+        lambda: None,
+        AgentMetadata(name="empty", description="empty"),
+    )
+    try:
+        agent_registry.get_agent("empty")
+        assert False, "Should raise"
+    except AgentBuildError as exc:
+        assert "auto_build=True" in str(exc)
+
+
+def test_get_agent_auto_build_uses_registered_builder():
+    class BuiltAgent:
+        def invoke(self, state):
+            return {"messages": [AIMessage(content="built")]}
+
+    class TestBuilder(BaseAgentBuilder):
+        def build(self, metadata):
+            assert metadata.name == "auto"
+            return BuiltAgent()
+
+    agent_builder_registry.register("test", TestBuilder())
+    agent_registry.register(
+        "auto",
+        lambda: None,
+        AgentMetadata(name="auto", description="auto", auto_build=True, agent_type="test"),
+    )
+
+    instance = agent_registry.get_agent("auto")
+    result = instance.invoke({"messages": [HumanMessage(content="hi")]})
+    assert "built" in str(result)
 
 
 def test_get_metadata():

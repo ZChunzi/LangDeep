@@ -1,6 +1,12 @@
 """Core components of the LangDeep agent workflow system."""
 
 from .execution import ExecutionPolicy
+from .agent_builder import (
+    BaseAgentBuilder,
+    ReActAgentBuilder,
+    AgentBuilderRegistry,
+    agent_builder_registry,
+)
 from .errors import (
     LangDeepError,
     ConfigurationError,
@@ -62,6 +68,10 @@ from .observability import HealthStatus, HealthChecker, MetricsCollector
 
 __all__ = [
     "ExecutionPolicy",
+    "BaseAgentBuilder",
+    "ReActAgentBuilder",
+    "AgentBuilderRegistry",
+    "agent_builder_registry",
     "LangDeepError",
     "ConfigurationError",
     "ModelNotFoundError",

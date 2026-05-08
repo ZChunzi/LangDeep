@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langdeep.core.execution.execution_policy import ExecutionPolicy
-from langdeep.core.errors import InvalidPolicyError
+from langdeep.core.errors import ConfigurationError, InvalidPolicyError
 
 
 def test_default_policy():
@@ -68,3 +68,36 @@ def test_to_dict_roundtrip():
 def test_retry_on_list():
     p = ExecutionPolicy(retry_on=["TimeoutError", "ConnectionError"])
     assert len(p.retry_on) == 2
+
+
+def test_extended_policy_validation():
+    for kwargs in (
+        {"max_retries": 0},
+        {"retry_backoff": "linear"},
+        {"timeout_seconds": 0},
+    ):
+        try:
+            ExecutionPolicy(**kwargs)
+            assert False, "Should raise"
+        except InvalidPolicyError:
+            pass
+
+
+def test_from_file_roundtrip_and_missing(tmp_path):
+    path = tmp_path / "policy.json"
+    path.write_text(
+        '{"max_concurrency": 2, "strategy": "sequential", "fail_fast": true}',
+        encoding="utf-8",
+    )
+
+    policy = ExecutionPolicy.from_file(str(path))
+
+    assert policy.max_concurrency == 2
+    assert policy.strategy == "sequential"
+    assert policy.fail_fast is True
+
+    try:
+        ExecutionPolicy.from_file(str(tmp_path / "missing.json"))
+        assert False, "Should raise"
+    except ConfigurationError:
+        pass

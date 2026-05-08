@@ -89,6 +89,8 @@ class WebhookReceiver:
                     return adapter.format_response(response)
                 if hasattr(response, "msg_type"):
                     return adapter.format_response([response])
+                if isinstance(response, dict):
+                    return response
             return {"content": str(response)}
         except Exception as exc:
             logger.error("Webhook dispatch failed", extra={"error": str(exc)}, exc_info=True)

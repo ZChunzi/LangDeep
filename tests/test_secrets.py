@@ -88,6 +88,13 @@ def test_manager_register_and_get():
     assert secrets_manager.get_secret("MGR_KEY") == "mgr_val"
 
 
+def test_manager_public_aliases():
+    """README-facing aliases stay compatible with the core methods."""
+    os.environ["LANGDEEP_ALIAS_KEY"] = "alias_val"
+    secrets_manager.add_provider(EnvSecretsProvider())
+    assert secrets_manager.resolve("ALIAS_KEY") == "alias_val"
+
+
 def test_manager_fallback_multiple_providers():
     """Second provider is consulted when first returns None."""
     os.environ["LANGDEEP_FALLBACK"] = "from_env"

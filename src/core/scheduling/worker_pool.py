@@ -60,7 +60,14 @@ class WorkerPool:
         """Shut down the pool, optionally waiting for running tasks."""
         self._shutdown_event.set()
         if self._executor is not None:
-            self._executor.shutdown(wait=wait, timeout=timeout)
+            if wait:
+                with self._lock:
+                    futures = list(self._futures.values())
+                if futures:
+                    concurrent.futures.wait(futures, timeout=timeout)
+                self._executor.shutdown(wait=False)
+            else:
+                self._executor.shutdown(wait=False)
             self._executor = None
         with self._lock:
             self._futures.clear()

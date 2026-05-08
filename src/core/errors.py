@@ -105,6 +105,11 @@ class AgentInvocationError(AgentError):
     code = "AGENT_INVOCATION_ERROR"
 
 
+class AgentBuildError(AgentError):
+    """Agent factory or automatic builder failed to create a runnable agent."""
+    code = "AGENT_BUILD_ERROR"
+
+
 class AgentRetryExhaustedError(AgentInvocationError):
     """Agent failed after all retry attempts."""
     code = "AGENT_RETRY_EXHAUSTED"

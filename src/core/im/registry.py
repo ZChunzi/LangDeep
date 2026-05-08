@@ -1,11 +1,14 @@
 """Registry for IM channel handlers."""
 
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from ..logging import get_logger
 from ..errors import ConfigurationError
 from .models import IMEvent, PlatformType
+
+if TYPE_CHECKING:
+    from ..orchestrator import FlowOrchestrator
 
 logger = get_logger(__name__)
 

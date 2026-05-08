@@ -177,3 +177,24 @@ def test_dependencies_satisfied():
     assert _dependencies_satisfied({"depends_on": ["t2"]}, results) is False
     assert _dependencies_satisfied({"depends_on": []}, results) is True
     assert _dependencies_satisfied({}, results) is True
+
+
+def test_requires_confirmation_task_waits():
+    _register_agents()
+    ex = Executor()
+    state = {
+        "messages": [HumanMessage(content="confirm")],
+        "workflow_plan": [
+            {
+                "id": "t1",
+                "agent": "agent_a",
+                "depends_on": [],
+                "requires_confirmation": True,
+                "status": "pending",
+            },
+        ],
+        "task_context": {},
+    }
+    result = ex.execute(state)
+    assert result["workflow_plan"][0]["status"] == "waiting_confirmation"
+    assert result["agent_results"]["t1"] == ""

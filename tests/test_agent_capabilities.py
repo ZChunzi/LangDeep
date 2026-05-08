@@ -77,8 +77,9 @@ class SmartMockLLM(BaseChatModel):
     ) -> ChatResult:
         all_text = " ".join(str(getattr(m, "content", "")) for m in messages)
 
-        # Supervisor 路由: 已绑定 tool，需要 tool_call 回复
-        if self._bound_tools and self._tool_choice == "required":
+        # Supervisor routing: FlowOrchestrator binds the routing tool without
+        # requiring providers to set a tool_choice hint.
+        if self._bound_tools:
             return self._route(messages, all_text)
 
         # Planner: 需要 JSON 计划
@@ -405,7 +406,7 @@ def orch(**kw) -> FlowOrchestrator:
         for name in [kw.get("supervisor_model", "gpt4o"), "deepseek_chat"]:
             if name not in model_registry.list_models():
                 model_registry.register(name, ModelConfig(provider="mock", model_name=name))
-            model_registry._instances[name] = _mock()
+            model_registry._instance_cache.set(name, _mock())
     return o
 
 

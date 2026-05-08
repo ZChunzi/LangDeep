@@ -52,7 +52,8 @@ class BaseSandbox(ABC):
             environment: Environment variables for the execution.
             files: Input files to make available, keyed by filename.
             workspace_dir: Shared directory for cross-sandbox data exchange.
-            network_access: Whether network access is allowed.
+            network_access: Whether network access is allowed. Backends must either
+                enforce this setting or reject unsupported values.
             **kwargs: Subclass-specific extensions.
 
         Returns:

@@ -22,7 +22,7 @@ class AuditLog:
         backend: Optional[BaseCacheBackend] = None,
         max_records_per_task: int = 100,
     ):
-        self._backend = backend or MemoryCache()
+        self._backend = backend if backend is not None else MemoryCache()
         self._max_records_per_task = max_records_per_task
         self._counter = 0
 

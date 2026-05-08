@@ -5,7 +5,7 @@ Suitable for development and testing. Data is lost on process exit.
 
 import threading
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from langchain_core.messages import BaseMessage
 
@@ -34,10 +34,8 @@ class InMemoryBackend(BaseMemoryBackend):
             self._data[session_id].append(entry)
 
     def store_messages(
-        self, session_id: str, messages: "Sequence[BaseMessage]"
+        self, session_id: str, messages: Sequence[BaseMessage]
     ) -> int:
-        # Import here for type hint
-        from typing import Sequence
         from .base import serialize_message
 
         entries = [

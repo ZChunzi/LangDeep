@@ -4,7 +4,7 @@ import asyncio
 import threading
 import time
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from croniter import croniter
 
@@ -14,6 +14,9 @@ from .models import ScheduledTask, TriggerType, ConditionContext
 from .worker_pool import WorkerPool
 from .persistent_store import TaskStore
 from .audit_log import AuditLog
+
+if TYPE_CHECKING:
+    from ..orchestrator import FlowOrchestrator
 
 logger = get_logger(__name__)
 

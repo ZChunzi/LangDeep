@@ -4,14 +4,14 @@
 
 # LangDeep
 
-**注解驱动的企业级多 Agent 工作流框架**
+**注解驱动、面向企业场景设计的多 Agent 工作流框架**
 
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![LangChain](https://img.shields.io/badge/LangChain-%3E%3D0.3.0-orange)](https://github.com/langchain-ai/langchain)
 [![LangGraph](https://img.shields.io/badge/LangGraph-%3E%3D0.2.0-blueviolet)](https://github.com/langchain-ai/langgraph)
 
-⚠️ **项目状态：Alpha**  
+⚠️ **项目状态：Alpha — v1.2.3**
 API 可能发生变动，欢迎试用并提供反馈，暂不建议直接部署到关键生产环境。
 
 </div>
@@ -20,7 +20,7 @@ API 可能发生变动，欢迎试用并提供反馈，暂不建议直接部署�
 
 ## ✨ 为什么选择 LangDeep？
 
-LangDeep 是一个基于 **LangChain** 和 **LangGraph** 构建的，**注解驱动**、**开箱即用**的企业级多 Agent 工作流框架。它旨在帮助开发者用极少的代码，快速搭建复杂的、具备生产能力的多 Agent 协作系统。
+LangDeep 是一个基于 **LangChain** 和 **LangGraph** 构建的，**注解驱动**、**开箱即用**、面向企业场景设计的多 Agent 工作流框架。它旨在帮助开发者用极少的代码，快速搭建复杂的多 Agent 协作系统。当前仍处于 Alpha 阶段，生产部署前需要结合自身场景补齐安全、运维和可靠性配置。
 
 - **🎨 注解驱动**: 使用 `@model`、`@regist_tool`、`@agent`、`@memory`、`@cache`、`@im_channel` 装饰器声明式注册组件，告别样板代码。
 - **🧠 Supervisor（主管）智能调度**: 内置主管 Agent 模式，自动将任务路由给最合适的专家 Agent。
@@ -31,6 +31,10 @@ LangDeep 是一个基于 **LangChain** 和 **LangGraph** 构建的，**注解驱
 - **💾 状态持久化**: 支持 LangGraph Checkpointer，工作流可在任意节点中断并恢复。
 - **🗄️ 可插拔存储后端**: `@memory` 注解注册记忆存储（Redis / SQLite / 内存），`@cache` 注解注册 LLM 响应缓存，统一的抽象接口层。
 - **💬 即时通讯接入**: `@im_channel` 注解注册消息处理器，内置 Webhook 接收器，支持企业微信、钉钉、飞书、Slack 等平台。
+- **🔒 沙箱执行**: `@sandbox` 注解注册代码执行后端；内置 `SubprocessSandbox` 适合可信/半可信本地任务，不应作为不可信代码的安全边界。
+- **🔐 密钥管理**: 内置 `SecretsManager`，支持多环境变量源的分层密钥解析，避免硬编码敏感信息。
+- **🔄 进程管理**: `ProcessManager` 管理长时间运行的工作流生命周期，支持暂停（Suspend）/恢复（Resume）和信号机制。
+- **📊 可观测性**: 内置 `HealthChecker` 健康检查和 `MetricsCollector` 指标收集，支持运行时健康诊断。`FlowOrchestrator.health()` 一键检测。
 
 ---
 
@@ -230,6 +234,10 @@ graph TB
         Scheduler[Scheduler 调度器]
         MemoryBackend[Memory 存储后端]
         CacheBackend[Cache 缓存后端]
+        SandboxEngine[Sandbox 沙箱引擎]
+        SecretsManager[Secrets 密钥管理]
+        ProcessManager[Process 进程管理]
+        Observability[Observability 可观测性]
     end
 
     User --> Orchestrator
@@ -271,7 +279,12 @@ langdeep/                        # 项目根目录
 │   │   │   ├── memory/          # 记忆存储后端 (MemoryEntry, InMemoryBackend, @memory)
 │   │   │   ├── cache/           # 缓存后端 (MemoryCache LRU+TTL, @cache)
 │   │   │   ├── im/              # 即时通讯集成 (@im_channel, WebhookReceiver)
-│   │   │   └── scheduling/      # 定时任务调度器 (WorkerPool, TaskStore, AuditLog)
+│   │   │   ├── scheduling/      # 定时任务调度器 (WorkerPool, TaskStore, AuditLog)
+│   │   │   ├── sandbox/         # 安全沙箱执行 (@sandbox, SubprocessSandbox)
+│   │   │   ├── secrets/         # 密钥管理 (SecretsManager, EnvSecretsProvider)
+│   │   │   ├── process/         # 进程生命周期管理 (ProcessManager, Suspend/Resume)
+│   │   │   ├── observability/   # 可观测性 (HealthChecker, MetricsCollector)
+│   │   │   └── coordination/    # 多 Agent 协调
 │   │   ├── schemas/             # 数据模型 & 状态定义
 │   │   ├── utils/               # 工具函数
 │   │   └── resources/           # 内置 Prompt 模板
@@ -296,7 +309,7 @@ langdeep/                        # 项目根目录
 
 ## ✅ 测试
 
-框架内置 **310 个自动化测试**，覆盖所有核心模块的逻辑路径。
+框架内置 **383 个自动化测试**，覆盖所有核心模块的逻辑路径。
 
 ### 运行测试
 
@@ -322,18 +335,36 @@ python scripts/run_tests.py --failfast
 
 | 模块 | 测试数 | 覆盖内容 |
 |------|--------|----------|
-| Orchestrator | 22 | 构建、路由、流式、扩展点注入、异常路径 |
-| Executor | 20 | 依赖解析、批量/并发/顺序策略、循环依赖、部分失败 |
-| Planner | 19 | LLM/降级规划器、模板加载、JSON/YAML 解析、异常容错 |
-| Aggregator | 18 | 多结果合并、失败隔离、自定义 Merger、启发式分类 |
-| Registry | 26 | 注册/查询/过滤/审计、单例隔离 |
-| Task Scheduler | 16 | Cron/间隔/一次性/条件触发、重试 |
-| Memory | 21 | InMemoryBackend CRUD、序列化轮转、Registry、@memory 装饰器 |
-| Cache | 24 | LRU 驱逐、TTL 过期、线程安全、Registry、@cache 装饰器 |
-| IM | 18 | 消息模型、Registry 分发、@im_channel 装饰器、WebhookReceiver |
-| Fuzz 测试 | 4 | 随机消息序列、随机 DAG、随机字符串的不变式验证 |
+| Errors | 10 | 异常层次结构、结构化错误上下文 |
+| Logging | 7 | 日志格式、Trace/Req ID 链路追踪 |
+| Tool Registry | 7 | 工具注册/查询/过滤、元数据管理 |
+| Agent Registry | 8 | Agent 注册/查询、能力标签查找 |
+| Model Registry | 11 | 模型注册/惰性实例化、Provider 工厂 |
+| Decorators | 5 | 注解装饰器参数传递与注册逻辑 |
+| Execution Policy | 8 | 策略加载、序列化、`from_file` |
+| Prompt Loader | 9 | Markdown 前置元数据解析、模板加载、热重载 |
+| Clean Messages | 11 | 系统/工具消息过滤、内容提取 |
+| Keyword Routing | 14 | 关键词匹配、大小写不敏感、优先级 |
+| Agent Node | 10 | Agent 节点封装、重试、超时、错误处理 |
+| Retry Task Runner | 11 | 指数退避重试、异步重试、部分成功 |
+| Planner | 19 | LLM/降级规划器、模板加载、JSON/YAML 解析 |
+| Aggregator | 18 | 多结果合并、失败隔离、自定义 Merger |
+| Executor | 10 | DAG 解析、批量/并发/顺序策略 |
+| Executor Edge | 10 | 循环依赖、并发限制、部分失败恢复 |
+| Workflow Planner | 13 | YAML/JSON 模板加载、拓扑排序 |
+| Task Scheduler | 16 | Cron/间隔/一次性/条件调度、WorkerPool、重试 |
+| Orchestrator | 14 | 图构建、同步/异步执行、流式、扩展点 |
+| Orchestrator Edge | 8 | 扩展点注入、异常路径、降级行为 |
+| Memory | 21 | CRUD、序列化轮转、`@memory` 装饰器 |
+| Cache | 24 | LRU 驱逐、TTL 过期、线程安全、`@cache` 装饰器 |
+| IM | 18 | 消息模型、Registry 分发、`@im_channel`、WebhookReceiver |
+| Secrets | 15 | 分层密钥解析、环境变量源、降级策略 |
+| Process | 20 | 进程状态机、Suspend/Resume、信号处理、超时 |
+| Sandbox | 26 | 子进程隔离、导入限制、超时、文件工件 |
+| Observability | 12 | 健康检查、指标采集、运行状态报告 |
+| Fuzz 测试 | 4 | 随机消息序列、随机 DAG、随机字符串不变式 |
 | 集成测试 | 24 | 端到端工作流、Agent 能力验证 |
-| **总计** | **310** | **所有核心模块** |
+| **总计** | **383** | **所有核心模块** |
 
 ### 测试架构
 
@@ -468,6 +499,79 @@ orchestrator = FlowOrchestrator(
 ```python
 async for chunk in orchestrator.astream("你的问题"):
     print(chunk)
+```
+
+### 安全沙箱执行 (`@sandbox`)
+
+通过 `@sandbox` 注解注册代码执行后端。内置 `SubprocessSandbox` 使用子进程执行，仅适合可信或半可信本地任务；如需运行不可信用户代码，请接入容器、VM 或远程隔离沙箱：
+
+```python
+from langdeep import sandbox
+from langdeep.core.sandbox import SubprocessSandbox
+
+@sandbox(name="python_sandbox", description="安全的 Python 代码执行沙箱")
+def python_sandbox():
+    return SubprocessSandbox(max_memory_mb=256)
+
+# 使用沙箱执行代码
+sandbox_backend = sandbox_registry.get_backend("python_sandbox")
+result = sandbox_backend.run(
+    code="print(sum(range(100)))",
+    language="python",
+    timeout=10,
+    allowed_imports={"math", "json", "random"},
+)
+print(result.stdout)  # 4950
+```
+
+### 密钥管理 (`SecretsManager`)
+
+内置分层密钥解析，支持多环境变量源优先级：
+
+```python
+from langdeep import secrets_manager, EnvSecretsProvider
+
+# 注册环境变量源（自动发现 .env 文件）
+secrets_manager.add_provider(EnvSecretsProvider())
+
+# 解析密钥（支持嵌套路径）
+api_key = secrets_manager.resolve("deepseek.api_key")
+db_url = secrets_manager.resolve("database.url")
+```
+
+### 进程管理 (`ProcessManager`)
+
+管理长时间运行的工作流进程生命周期，支持暂停/恢复：
+
+```python
+from langdeep import ProcessManager, ProcessState
+
+manager = ProcessManager()
+process = manager.create_process(orchestrator, context={"task_id": "long_task"})
+await process.arun()
+
+# 暂停 / 恢复
+await process.suspend()
+await process.resume()
+
+# 查询状态
+state = process.state  # ProcessState.RUNNING / SUSPENDED / COMPLETED
+```
+
+### 可观测性
+
+内置健康检查和指标收集：
+
+```python
+orchestrator = FlowOrchestrator(supervisor_model="gpt-4o")
+
+# 一键健康检测
+health = orchestrator.health()
+# {"status": "healthy", "checks": [...], "timestamp": "..."}
+
+# 获取进程内指标
+metrics = orchestrator.get_metrics()
+# {"total_invocations": 42, "avg_latency_ms": 1200, ...}
 ```
 
 ### 自定义 Prompt 目录

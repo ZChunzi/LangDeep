@@ -13,6 +13,7 @@ from langdeep.core.im import (
     im_channel,
     WebhookReceiver,
 )
+from langdeep.core.im.base import IMPlatformAdapter
 
 
 def setup_function():
@@ -236,3 +237,180 @@ def test_webhook_adapter_not_required_for_basic():
         platform=PlatformType.CUSTOM,
     )
     assert result["content"] == "direct"
+
+
+def test_webhook_adapter_signature_rejection():
+    """Registered adapters can reject invalid signatures before parsing."""
+
+    class RejectingAdapter(IMPlatformAdapter):
+        @property
+        def platform(self):
+            return PlatformType.CUSTOM
+
+        def parse_payload(self, raw_data, headers=None):
+            raise AssertionError("parse_payload should not run after signature failure")
+
+        def validate_signature(self, raw_body, signature, timestamp=None):
+            return False
+
+        def format_response(self, messages):
+            return {"messages": [m.content for m in messages]}
+
+        def create_reply(self, original, text):
+            return {"content": text}
+
+    reg = IMChannelRegistry()
+    reg.register_channel(
+        "signed",
+        lambda event: event.content,
+        PlatformType.CUSTOM,
+        adapter=RejectingAdapter(),
+    )
+    receiver = WebhookReceiver(registry=reg, verify_signature=True)
+
+    result = receiver.handle_request(
+        b'{"content": "hello"}',
+        headers={"X-Signature": "bad", "X-Timestamp": "1"},
+        platform=PlatformType.CUSTOM,
+    )
+
+    assert result == {"error": "Invalid signature"}
+
+
+def test_webhook_adapter_parse_and_format_list_response():
+    """Adapters parse payloads and format list responses."""
+
+    class FormattingAdapter(IMPlatformAdapter):
+        @property
+        def platform(self):
+            return PlatformType.CUSTOM
+
+        def parse_payload(self, raw_data, headers=None):
+            return IMEvent(
+                msg_id="adapter-msg",
+                session_id=raw_data["room"],
+                platform=PlatformType.CUSTOM,
+                content=raw_data["text"],
+            )
+
+        def validate_signature(self, raw_body, signature, timestamp=None):
+            return True
+
+        def format_response(self, messages):
+            return {"formatted": [m.content for m in messages]}
+
+        def create_reply(self, original, text):
+            return {"content": text}
+
+    adapter = FormattingAdapter()
+    reg = IMChannelRegistry()
+
+    def handler(event):
+        assert event.msg_id == "adapter-msg"
+        return [
+            IMText(
+                msg_id="reply",
+                session_id=event.session_id,
+                platform=event.platform,
+                content=f"reply: {event.content}",
+            )
+        ]
+
+    reg.register_channel("adapter", handler, PlatformType.CUSTOM, adapter=adapter)
+    receiver = WebhookReceiver(registry=reg, verify_signature=True)
+
+    result = receiver.handle_request(
+        b'{"room": "r1", "text": "hello"}',
+        headers={"X-Signature": "ok"},
+        platform=PlatformType.CUSTOM,
+    )
+
+    assert result == {"formatted": ["reply: hello"]}
+
+
+def test_webhook_adapter_formats_single_message_response():
+    class SingleMessageAdapter(IMPlatformAdapter):
+        @property
+        def platform(self):
+            return PlatformType.CUSTOM
+
+        def parse_payload(self, raw_data, headers=None):
+            return IMEvent(
+                msg_id="incoming",
+                session_id="room",
+                platform=PlatformType.CUSTOM,
+                content=raw_data["content"],
+            )
+
+        def validate_signature(self, raw_body, signature, timestamp=None):
+            return True
+
+        def format_response(self, messages):
+            return {"single": messages[0].content}
+
+        def create_reply(self, original, text):
+            return {"content": text}
+
+    reg = IMChannelRegistry()
+    reg.register_channel(
+        "single",
+        lambda event: IMText(
+            msg_id="reply",
+            session_id=event.session_id,
+            platform=event.platform,
+            content=f"single: {event.content}",
+        ),
+        PlatformType.CUSTOM,
+        adapter=SingleMessageAdapter(),
+    )
+    receiver = WebhookReceiver(registry=reg, verify_signature=True)
+
+    result = receiver.handle_request(
+        b'{"content": "hello"}',
+        headers={"X-Signature": "ok"},
+        platform=PlatformType.CUSTOM,
+    )
+
+    assert result == {"single": "single: hello"}
+
+
+def test_webhook_unknown_x_platform_falls_back_to_default():
+    receiver = WebhookReceiver(verify_signature=False)
+
+    @im_channel(name="fallback", platform="custom")
+    def fallback(event):
+        return event.platform.value
+
+    result = receiver.handle_request(
+        b'{"content": "hello"}',
+        headers={"X-Platform": "unknown"},
+    )
+
+    assert result["content"] == "custom"
+
+
+def test_webhook_platform_detection_feishu_and_dingtalk():
+    receiver = WebhookReceiver(verify_signature=False)
+    assert receiver._detect_platform({"User-Agent": "Feishu Bot"}) == PlatformType.FEISHU
+    assert receiver._detect_platform({"User-Agent": "DingTalk Callback"}) == PlatformType.DINGTALK
+
+
+def test_im_platform_adapter_default_route():
+    class RouteAdapter(IMPlatformAdapter):
+        @property
+        def platform(self):
+            return PlatformType.SLACK
+
+        def parse_payload(self, raw_data, headers=None):
+            raise NotImplementedError
+
+        def validate_signature(self, raw_body, signature, timestamp=None):
+            return True
+
+        def format_response(self, messages):
+            return {}
+
+        def create_reply(self, original, text):
+            return {}
+
+    assert RouteAdapter().get_webhook_route() == "/webhook/slack"

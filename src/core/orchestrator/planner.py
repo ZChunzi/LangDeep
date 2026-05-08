@@ -8,6 +8,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from ..logging import get_logger
 from ..errors import PlannerError, TemplateNotFoundError
 from ..registry.agent_registry import agent_registry
+from ..registry.tool_registry import tool_registry
+from ...schemas import validate_workflow_plan
 
 logger = get_logger(__name__)
 
@@ -121,9 +123,25 @@ class Planner:
 
         try:
             plan = self._generator.generate(user_request, agents)
+            plan = validate_workflow_plan(
+                plan,
+                available_agents=agents,
+                available_tools=tool_registry.list_tools(),
+            ).to_task_dicts()
         except Exception as exc:
             logger.error("Plan generation failed, using fallback", extra={"error": str(exc)})
             plan = self._fallback.generate(user_request, agents)
+            try:
+                plan = validate_workflow_plan(
+                    plan,
+                    available_agents=agents,
+                    available_tools=tool_registry.list_tools(),
+                ).to_task_dicts()
+            except Exception as fallback_exc:
+                logger.error(
+                    "Fallback plan validation failed",
+                    extra={"error": str(fallback_exc)},
+                )
 
         logger.info("Plan created", extra={"task_count": len(plan)})
         return {"workflow_plan": plan}
@@ -213,11 +231,19 @@ def parse_plan_content(content: str) -> List[Dict[str, Any]]:
 
 
 def update_plan_status(plan: List[Dict], results: Dict[str, Any]) -> List[Dict]:
-    """Mark tasks as completed by matching task_id keys in results."""
+    """Update task status from execution results."""
     for task in plan:
         tid = task.get("id")
         if tid and tid in results:
-            task["status"] = "completed"
+            result = results[tid]
+            if isinstance(result, dict) and result.get("status") == "waiting_confirmation":
+                task["status"] = "waiting_confirmation"
+            elif isinstance(result, dict) and result.get("status") == "skipped":
+                task["status"] = "skipped"
+            elif isinstance(result, dict) and result.get("success"):
+                task["status"] = "completed"
+            else:
+                task["status"] = "failed"
     return plan
 
 

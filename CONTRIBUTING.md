@@ -51,7 +51,7 @@ pip install -e ".[all]"
 ```bash
 cd LangDeep
 
-# 运行全部 247 个测试
+# 运行全部 383 个测试
 python scripts/run_tests.py
 
 # 详细输出
@@ -81,7 +81,7 @@ tests/
 ├── test_model_registry.py       # 模型注册中心 (11)
 ├── test_execution_policy.py     # 执行策略 (8)
 ├── test_decorators.py           # 注解装饰器 (5)
-├── test_prompt_loader.py        # Prompt 加载器 (11)
+├── test_prompt_loader.py        # Prompt 加载器 (9)
 ├── test_clean_messages.py       # 消息清理 (11)
 ├── test_keyword_routing.py      # 关键字路由 (14)
 ├── test_agent_node.py           # Agent 节点 (10)
@@ -94,9 +94,18 @@ tests/
 ├── test_task_scheduler.py       # 定时调度器 (16)
 ├── test_orchestrator.py         # 编排器基础 (14)
 ├── test_orchestrator_edge.py    # 编排器边界: 扩展点注入、异常流 (8)
+├── test_memory.py               # 记忆存储后端 (21)
+├── test_cache.py                # LLM 响应缓存 (24)
+├── test_im.py                   # 即时通讯集成 (18)
+├── test_secrets.py              # 密钥管理 (15)
+├── test_process.py              # 进程生命周期 (20)
+├── test_sandbox.py              # 安全沙箱执行 (26)
+├── test_observability.py        # 可观测性 (12)
 ├── test_fuzz.py                 # 模糊测试: 随机输入不变式 (4)
 └── test_agent_capabilities.py   # 端到端集成测试 (24)
 ```
+
+总计 **383 个测试**，覆盖 29 个测试模块。
 
 ### 编写测试
 

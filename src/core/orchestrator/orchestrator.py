@@ -1,12 +1,11 @@
 """Flow orchestrator — modular, extensible coordinator built on LangGraph."""
 
-import asyncio
 import importlib
 import inspect
 import os
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence
 
 from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
@@ -18,7 +17,7 @@ from langchain_core.messages import (
 )
 
 from ..logging import get_logger, set_trace_context, clear_trace_context
-from ..errors import LangDeepError, OrchestrationError
+from ..errors import ConfigurationError, LangDeepError, OrchestrationError
 from ..registry.agent_registry import agent_registry
 from ..execution.execution_policy import ExecutionPolicy
 
@@ -27,6 +26,9 @@ from .planner import Planner, PlanGenerator, TemplateLoader, FallbackPlanGenerat
 from .executor import Executor, TaskRunner, _clean_messages
 from .aggregator import Aggregator, ResultMerger
 from .agent_node import make_agent_node
+
+if TYPE_CHECKING:
+    from ..process import ProcessManager
 
 logger = get_logger(__name__)
 
@@ -118,6 +120,7 @@ class FlowOrchestrator:
         memory: Optional[str] = None,
         # Process manager (optional, for long-running workflow lifecycle)
         process_manager: Optional["ProcessManager"] = None,
+        strict_component_import: bool = False,
     ):
         self._supervisor_model = supervisor_model
         self._max_retries = max_retries
@@ -156,6 +159,7 @@ class FlowOrchestrator:
         self._auto_import(
             dirs=component_dirs or DEFAULT_COMPONENT_DIRS,
             caller_file=inspect.stack()[1].filename,
+            strict=strict_component_import,
         )
 
         # Cached registrations
@@ -234,22 +238,7 @@ class FlowOrchestrator:
         template_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute the workflow asynchronously and return the final state."""
-        initial = self._initial_state(user_input, context, workflow_plan, template_name)
-        trace_id = set_trace_context()
-        logger.info("Orchestrator ainvoke start", extra={"input_preview": user_input[:120]})
-        try:
-            result = await self._graph.ainvoke(initial)
-            logger.info("Orchestrator ainvoke complete")
-            return result
-        except Exception as exc:
-            logger.error("Orchestrator ainvoke failed", extra={"error": str(exc)}, exc_info=True)
-            raise OrchestrationError(
-                "Async workflow execution failed",
-                context={"user_input": user_input[:200], "trace_id": trace_id},
-                cause=exc,
-            ) from exc
-        finally:
-            clear_trace_context()
+        return self.invoke(user_input, context, workflow_plan, template_name)
 
     async def astream(self, user_input: str, context: Optional[Dict] = None, **kwargs):
         """Execute the workflow as a stream, yielding each node's output."""
@@ -261,7 +250,7 @@ class FlowOrchestrator:
         set_trace_context()
         logger.info("Orchestrator astream start", extra={"input_preview": user_input[:120]})
         try:
-            async for chunk in self._graph.astream(initial, **kwargs):
+            for chunk in self._graph.stream(initial, **kwargs):
                 yield chunk
         except Exception as exc:
             logger.error("Orchestrator astream failed", extra={"error": str(exc)}, exc_info=True)
@@ -409,8 +398,9 @@ class FlowOrchestrator:
 
     # ── Auto-import ───────────────────────────────────────────────────────────
 
-    def _auto_import(self, dirs: List[str], caller_file: str) -> None:
+    def _auto_import(self, dirs: List[str], caller_file: str, strict: bool = False) -> None:
         base_dir = os.path.dirname(os.path.abspath(caller_file))
+        failures: List[Dict[str, str]] = []
         for folder in dirs:
             folder_path = (
                 folder if os.path.isabs(folder)
@@ -435,6 +425,13 @@ class FlowOrchestrator:
                     logger.info("Module loaded", extra={"component_module": module_name})
                 except Exception as e:
                     logger.error("Module load failed", extra={"component_module": module_name, "error": str(e)}, exc_info=True)
+                    failures.append({"module": module_name, "error": str(e)})
+
+        if strict and failures:
+            raise ConfigurationError(
+                "Component auto-import failed in strict mode",
+                context={"failures": failures},
+            )
 
     # ── Cached lookups ────────────────────────────────────────────────────────
 

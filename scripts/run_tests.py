@@ -13,7 +13,10 @@ import sys
 import os
 
 # 将 tests 目录加入路径，委托给 run_all.py
-_tests_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tests")
+_root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_tests_dir = os.path.join(_root_dir, "tests")
+_src_dir = os.path.join(_root_dir, "src")
+sys.path.insert(0, _src_dir)
 sys.path.insert(0, _tests_dir)
 
 if __name__ == "__main__":

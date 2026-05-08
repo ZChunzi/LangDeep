@@ -14,7 +14,10 @@ def agent(
     model: str = "default",
     tools: Optional[List[str]] = None,
     system_prompt: Optional[str] = None,
+    prompt_path: Optional[str] = None,
     priority: int = 1,
+    auto_build: bool = False,
+    agent_type: str = "react",
 ):
     """Decorator that registers an agent factory function.
 
@@ -27,6 +30,7 @@ def agent(
             routing_keywords=["calculate", "math", "equation"],
             model="gpt4o",
             tools=["calculator"],
+            auto_build=True,
         )
         def create_math_agent():
             ...
@@ -42,7 +46,10 @@ def agent(
             model_name=model,
             tools=tools or [],
             system_prompt=system_prompt,
+            prompt_path=prompt_path,
             priority=priority,
+            auto_build=auto_build,
+            agent_type=agent_type,
         )
         agent_registry.register(agent_name, func, metadata)
         return func

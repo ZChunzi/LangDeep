@@ -25,13 +25,16 @@ from langdeep.core.process import ProcessManager, ProcessState
 from langdeep.core.secrets import secrets_manager, EnvSecretsProvider
 from langdeep.core.observability import HealthChecker, MetricsCollector
 from langdeep.core.execution.execution_policy import ExecutionPolicy
+from langdeep.core.agent_builder import BaseAgentBuilder, ReActAgentBuilder, agent_builder_registry
 from langdeep.core.planner import WorkflowPlanner, WorkflowNode, NodeType
+from langdeep.schemas import WorkflowPlan, WorkflowTask, validate_workflow_plan
 from langdeep.core.errors import (
     LangDeepError,
     ConfigurationError,
     ModelError,
     ModelNotFoundError,
     AgentError,
+    AgentBuildError,
     AgentNotFoundError,
     ToolError,
     ToolNotFoundError,
@@ -40,7 +43,7 @@ from langdeep.core.errors import (
 )
 from langdeep.core.logging import get_logger, set_trace_context, get_trace_id
 
-__version__ = "1.2.1"
+__version__ = "1.2.3"
 
 __all__ = [
     # Orchestrator
@@ -68,16 +71,23 @@ __all__ = [
     "im_channel",
     # Execution
     "ExecutionPolicy",
+    "BaseAgentBuilder",
+    "ReActAgentBuilder",
+    "agent_builder_registry",
     # Planner
     "WorkflowPlanner",
     "WorkflowNode",
     "NodeType",
+    "WorkflowPlan",
+    "WorkflowTask",
+    "validate_workflow_plan",
     # Errors
     "LangDeepError",
     "ConfigurationError",
     "ModelError",
     "ModelNotFoundError",
     "AgentError",
+    "AgentBuildError",
     "AgentNotFoundError",
     "ToolError",
     "ToolNotFoundError",

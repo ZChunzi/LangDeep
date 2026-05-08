@@ -7,7 +7,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from langdeep.core.decorators.agent import agent
 from langdeep.core.decorators.model import model
 from langdeep.core.decorators.tool import regist_tool
-from langdeep.core.decorators.provider import provider
+from langdeep.core.decorators.provider import (
+    anthropic_provider,
+    azure_provider,
+    deepseek_provider,
+    google_genai_provider,
+    ollama_provider,
+    openai_provider,
+    provider,
+    vertexai_provider,
+)
 from langdeep.core.registry.agent_registry import agent_registry, AgentMetadata
 from langdeep.core.registry.model_registry import model_registry, ModelConfig
 from langdeep.core.registry.tool_registry import tool_registry, ToolMetadata
@@ -36,6 +45,24 @@ def test_agent_decorator():
     assert meta.priority == 2
 
     cleaned = clean_registries()
+
+
+def test_agent_decorator_auto_build_metadata():
+    @agent(
+        name="weather_expert",
+        model="mock",
+        tools=["get_weather"],
+        prompt_path="prompts/weather.md",
+        auto_build=True,
+        agent_type="react",
+    )
+    def weather_expert():
+        pass
+
+    meta = agent_registry.get_metadata("weather_expert")
+    assert meta.auto_build is True
+    assert meta.agent_type == "react"
+    assert meta.prompt_path == "prompts/weather.md"
 
 
 def test_agent_decorator_default_name():
@@ -91,6 +118,27 @@ def test_provider_decorator():
     from langdeep.core.registry.model_registry import provider_registry
     factory = provider_registry.get_provider("my_provider")
     assert callable(factory)
+
+
+def test_predefined_provider_decorators_register_expected_names():
+    from langdeep.core.registry.model_registry import provider_registry
+
+    decorators = [
+        (openai_provider, "openai"),
+        (anthropic_provider, "anthropic"),
+        (azure_provider, "azure_openai"),
+        (ollama_provider, "ollama"),
+        (vertexai_provider, "vertexai"),
+        (google_genai_provider, "google_genai"),
+        (deepseek_provider, "deepseek"),
+    ]
+
+    for decorator, expected_name in decorators:
+        @decorator
+        def factory(config, provider_name=expected_name):
+            return provider_name
+
+        assert provider_registry.get_provider(expected_name)(None) == expected_name
 
 
 # Need this import for the agent decorator test

@@ -1,6 +1,6 @@
 # LangDeep Framework — Developer Guide
 
-**Version 1.2.0** | **License MIT**
+**Version 1.2.3** | **License MIT**
 
 ---
 
@@ -19,12 +19,16 @@
 11. [Checkpointing & State](#11-checkpointing--state)
 12. [Task Scheduler](#12-task-scheduler)
 13. [IM Integration](#13-im-integration)
-14. [Error Handling](#14-error-handling)
-15. [Logging & Tracing](#15-logging--tracing)
-16. [API Reference](#16-api-reference)
-17. [Extension Points](#17-extension-points)
-18. [Best Practices](#18-best-practices)
-19. [Troubleshooting](#19-troubleshooting)
+14. [Sandbox](#14-sandbox)
+15. [Secrets Management](#15-secrets-management)
+16. [Process Management](#16-process-management)
+17. [Observability](#17-observability)
+18. [Error Handling](#18-error-handling)
+19. [Logging & Tracing](#19-logging--tracing)
+20. [API Reference](#20-api-reference)
+21. [Extension Points](#21-extension-points)
+22. [Best Practices](#22-best-practices)
+23. [Troubleshooting](#23-troubleshooting)
 
 ---
 
@@ -54,6 +58,10 @@ LangDeep is a decorator-driven multi-agent orchestration framework built on Lang
 | Pluggable memory backends | `@memory` decorator + `BaseMemoryBackend` ABC (Redis, SQLite, etc.) |
 | LLM response caching | `@cache` decorator + `BaseCacheBackend` ABC (LRU+TTL, Redis, etc.) |
 | IM platform integration | `@im_channel` decorator + `WebhookReceiver` (WeCom, DingTalk, Feishu, Slack) |
+| Secure code sandbox | `@sandbox` decorator + `BaseSandbox` ABC (subprocess isolation) |
+| Secrets management | `SecretsManager` + pluggable `SecretsProvider` for credential resolution |
+| Process lifecycle | `ProcessManager` with suspend/resume and signal-based workflow control |
+| Observability | `HealthChecker` health checks + `MetricsCollector` in-process metrics |
 
 ---
 
@@ -1448,9 +1456,218 @@ app.include_router(create_fastapi_router(receiver, prefix="/webhook"))
 
 ---
 
-## 14. Error Handling
+## 14. Sandbox
 
-### 14.1 Error Hierarchy
+### 14.1 Overview
+
+The sandbox subsystem provides pluggable code execution backends. The built-in `SubprocessSandbox` is a local execution helper with import checks, timeouts, and resource limits; it is not a hardened security boundary for untrusted code and does not implement network isolation. Use a container, VM, or remote sandbox backend for untrusted user-provided scripts.
+
+### 14.2 Sandbox Registration via `@sandbox`
+
+```python
+from langdeep import sandbox
+from langdeep.core.sandbox import SubprocessSandbox
+
+@sandbox(name="safe_runner", description="Restricted Python sandbox")
+def sandbox_factory():
+    return SubprocessSandbox(max_memory_mb=256)
+```
+
+### 14.3 BaseSandbox Interface
+
+```python
+class BaseSandbox(ABC):
+    SUPPORTED_LANGUAGES = {"python", "shell", "python3"}
+
+    def run(
+        self,
+        code: str,
+        language: str = "python",
+        timeout: int = 30,
+        environment: Optional[Dict[str, str]] = None,
+        files: Optional[Dict[str, bytes]] = None,
+        workspace_dir: Optional[str] = None,
+        network_access: bool = False,
+        **kwargs: Any,
+    ) -> SandboxResult:
+        ...
+```
+
+### 14.4 SandboxResult
+
+```python
+@dataclass
+class SandboxResult:
+    stdout: str                    # Standard output
+    stderr: str                    # Standard error
+    exit_code: int                 # 0 = success
+    duration_ms: int               # Execution time
+    artifacts: Dict[str, bytes]    # Generated files
+```
+
+### 14.5 Error Handling
+
+| Exception | Condition |
+|---|---|
+| `SandboxTimeoutError` | Execution exceeded `timeout` |
+| `SandboxImportError` | Code tried a disallowed import |
+| `SandboxError` | Other execution failures (invalid code, etc.) |
+
+---
+
+## 15. Secrets Management
+
+### 15.1 Overview
+
+`SecretsManager` provides hierarchical secret resolution across multiple `SecretsProvider` sources. It prevents hardcoded credentials and supports layered environments (defaults → .env → environment variables).
+
+### 15.2 Usage
+
+```python
+from langdeep import secrets_manager, EnvSecretsProvider
+
+# Add providers (order = priority, first wins)
+secrets_manager.add_provider(EnvSecretsProvider())
+
+# Resolve secrets with dot-notation keys
+api_key = secrets_manager.resolve("openai.api_key")
+db_url = secrets_manager.resolve("database.url")
+```
+
+### 15.3 SecretsProvider Interface
+
+```python
+class SecretsProvider(ABC):
+    def get(self, key: str) -> Optional[str]: ...
+    def has(self, key: str) -> bool: ...
+```
+
+**Built-in providers:**
+
+| Provider | Source |
+|---|---|
+| `EnvSecretsProvider` | OS environment variables + `.env` files |
+
+### 15.4 SecretsManager API
+
+```python
+manager.add_provider(provider: SecretsProvider, priority: Optional[int] = None) -> None
+manager.resolve(key: str) -> Optional[str]
+manager.clear() -> None
+```
+
+---
+
+## 16. Process Management
+
+### 16.1 Overview
+
+`ProcessManager` manages the lifecycle of long-running workflow processes, supporting suspend/resume signals and state transitions.
+
+### 16.2 State Machine
+
+```
+PENDING → RUNNING → COMPLETED
+              ↓
+          SUSPENDED → (resume) → RUNNING
+              ↓
+          CANCELLED
+              ↓
+          FAILED
+```
+
+### 16.3 Usage
+
+```python
+from langdeep import ProcessManager, ProcessState
+
+manager = ProcessManager()
+process = manager.create_process(
+    orchestrator,
+    context={"task_id": "long_analysis", "params": {...}},
+)
+
+# Run
+await process.arun()
+
+# Suspend / Resume
+await process.suspend()    # Pause execution
+await process.resume()     # Resume from pause
+
+# Check state
+state = process.state  # ProcessState enum
+assert state == ProcessState.COMPLETED
+```
+
+### 16.4 Process Signal Types
+
+| Signal | Behavior |
+|---|---|
+| `SuspendSignal` | Request graceful pause |
+| `CancelSignal` | Request cancellation |
+
+Process signals are caught mid-execution and trigger the appropriate state transition. Suspended processes can be serialized and resumed in a new interpreter session.
+
+---
+
+## 17. Observability
+
+### 17.1 Overview
+
+The observability subsystem provides health checks and metrics collection for runtime monitoring of orchestration pipelines.
+
+### 17.2 HealthChecker
+
+```python
+from langdeep import FlowOrchestrator
+
+orchestrator = FlowOrchestrator(supervisor_model="gpt4o")
+health = orchestrator.health()
+# Returns:
+# {
+#     "status": "healthy" | "degraded",
+#     "checks": [
+#         {"name": "graph_compiled", "ok": True},
+#         {"name": "model_available", "ok": True},
+#     ],
+#     "timestamp": "2026-05-07T10:30:00",
+# }
+```
+
+### 17.3 MetricsCollector
+
+```python
+metrics = orchestrator.get_metrics()
+# Returns aggregated runtime metrics:
+# {
+#     "total_invocations": 42,
+#     "avg_latency_ms": 1200,
+#     "total_errors": 3,
+#     "uptime_seconds": 86400,
+#     ...
+# }
+```
+
+### 17.4 Standalone Usage
+
+```python
+from langdeep.core.observability import HealthChecker, MetricsCollector
+
+checker = HealthChecker()
+status = checker.check_all()
+print(f"Health: {status.status}")
+
+collector = MetricsCollector()
+collector.record_invocation(latency_ms=1500)
+collector.record_error("timeout")
+report = collector.get_metrics()
+```
+
+---
+
+## 18. Error Handling
+
+### 18.1 Error Hierarchy
 
 All exceptions inherit from `LangDeepError`:
 
@@ -1482,7 +1699,7 @@ LangDeepError
     └── PromptNotFoundError
 ```
 
-### 14.2 Error Format
+### 18.2 Error Format
 
 Every error carries structured context:
 
@@ -1505,7 +1722,7 @@ Example error output:
   | cause=ModelNotFoundError("[MODEL_NOT_FOUND] Model 'gpt5' is not registered ...")
 ```
 
-### 14.3 Retry Behavior
+### 18.3 Retry Behavior
 
 **Agent nodes** (direct routing): Exponential backoff retry, default 3 attempts:
 
@@ -1540,7 +1757,7 @@ ScheduledTask(
 )
 ```
 
-### 14.4 Graceful Degradation
+### 18.4 Graceful Degradation
 
 | Component | Failure behavior |
 |---|---|
@@ -1552,9 +1769,9 @@ ScheduledTask(
 
 ---
 
-## 15. Logging & Tracing
+## 19. Logging & Tracing
 
-### 15.1 Log Format
+### 19.1 Log Format
 
 All logs use structured `key=value` format:
 
@@ -1562,7 +1779,7 @@ All logs use structured `key=value` format:
 level=INFO logger=langdeep.core.orchestrator.orchestrator trace_id=abc123 req_id=def456 input_preview=Hello msg="Orchestrator ainvoke start"
 ```
 
-### 15.2 Configuring Log Level
+### 19.2 Configuring Log Level
 
 ```python
 from langdeep.core.logging import configure
@@ -1577,7 +1794,7 @@ handler = logging.StreamHandler(sys.stderr)
 configure(level=logging.INFO, handler=handler)
 ```
 
-### 15.3 Getting a Logger
+### 19.3 Getting a Logger
 
 ```python
 from langdeep import get_logger
@@ -1588,7 +1805,7 @@ logger.info("Something happened", extra={"key": "value"})
 
 Extra dict values appear in the log output as `key=value` pairs.
 
-### 15.4 Tracing
+### 19.4 Tracing
 
 Trace IDs and request IDs are automatically set per invocation:
 
@@ -1606,9 +1823,9 @@ clear_trace_context()
 
 ---
 
-## 16. API Reference
+## 20. API Reference
 
-### 16.1 FlowOrchestrator
+### 20.1 FlowOrchestrator
 
 ```python
 class FlowOrchestrator:
@@ -1629,6 +1846,7 @@ class FlowOrchestrator:
         task_runner: Optional[TaskRunner] = None,
         result_merger: Optional[ResultMerger] = None,
         memory: Optional[str] = None,  # Named memory backend (from @memory decorator)
+        process_manager: Optional["ProcessManager"] = None,  # Long-running workflow lifecycle
     )
 
     # Synchronous execution
@@ -1657,11 +1875,17 @@ class FlowOrchestrator:
         **kwargs,
     )
 
+    # Health check — returns component status summary
+    def health(self) -> Dict[str, Any]
+
+    # In-process metrics aggregation
+    def get_metrics(self) -> Dict[str, Any]
+
     @property
     def graph(self)  # Compiled LangGraph StateGraph
 ```
 
-### 16.2 Decorators
+### 20.2 Decorators
 
 ```python
 @model(
@@ -1735,7 +1959,17 @@ class FlowOrchestrator:
 # Handler signature: (event: IMEvent) -> str
 ```
 
-### 16.3 RoutingStrategy (ABC)
+```python
+@sandbox(
+    name: Optional[str] = None,    # Registry key (defaults to function name)
+    description: str = "",          # Human-readable description
+    allowed_imports: Optional[List[str]] = None,  # Permitted imports
+    **kwargs,                       # Extra metadata
+)
+# Factory returns BaseSandback or None (uses SubprocessSandbox)
+```
+
+### 20.3 RoutingStrategy (ABC)
 
 ```python
 class RoutingStrategy(ABC):
@@ -1749,7 +1983,7 @@ class RoutingStrategy(ABC):
         ...
 ```
 
-### 16.4 PlanGenerator (ABC)
+### 20.4 PlanGenerator (ABC)
 
 ```python
 class PlanGenerator(ABC):
@@ -1763,7 +1997,7 @@ class PlanGenerator(ABC):
         ...
 ```
 
-### 16.5 TaskRunner (ABC)
+### 20.5 TaskRunner (ABC)
 
 ```python
 class TaskRunner(ABC):
@@ -1790,7 +2024,7 @@ class TaskRunner(ABC):
         ...
 ```
 
-### 16.6 ResultMerger (ABC)
+### 20.6 ResultMerger (ABC)
 
 ```python
 class ResultMerger(ABC):
@@ -1804,7 +2038,7 @@ class ResultMerger(ABC):
         ...
 ```
 
-### 16.7 ExecutionPolicy
+### 20.7 ExecutionPolicy
 
 ```python
 @dataclass
@@ -1822,7 +2056,7 @@ class ExecutionPolicy:
     def to_dict(self) -> Dict[str, Any]: ...
 ```
 
-### 16.8 WorkflowPlanner
+### 20.8 WorkflowPlanner
 
 ```python
 class WorkflowPlanner:
@@ -1835,7 +2069,7 @@ class WorkflowPlanner:
     def estimate_duration(self, nodes: List[WorkflowNode]) -> int
 ```
 
-### 16.9 WorkflowNode
+### 20.9 WorkflowNode
 
 ```python
 @dataclass
@@ -1851,7 +2085,7 @@ class WorkflowNode:
     priority: int = 0
 ```
 
-### 16.10 Registries
+### 20.10 Registries
 
 ```python
 # Model registry (module-level singleton)
@@ -1901,9 +2135,25 @@ im_channel_registry.register_channel(name, handler, platform, description, adapt
 im_channel_registry.dispatch(channel_name: str, event: IMEvent) -> str
 im_channel_registry.list_channels() -> List[dict]
 im_channel_registry.connect_orchestrator(channel_name, orchestrator, supervisor_model) -> None
+
+# Sandbox registry (module-level singleton)
+from langdeep.core.sandbox import sandbox_registry
+sandbox_registry.register(name: str, factory: Callable, metadata: dict) -> None
+sandbox_registry.get_backend(name: str) -> BaseSandbox           # Raises ConfigurationError
+sandbox_registry.list_backends() -> List[str]
+
+# Secrets manager (module-level singleton)
+from langdeep.core.secrets import secrets_manager
+secrets_manager.add_provider(provider: SecretsProvider) -> None
+secrets_manager.resolve(key: str) -> Optional[str]
+
+# Process manager
+from langdeep.core.process import ProcessManager
+manager = ProcessManager()
+manager.create_process(orchestrator, context=None) -> Process
 ```
 
-### 16.11 Result Helpers
+### 20.11 Result Helpers
 
 ```python
 from langdeep.core.orchestrator.executor import ok, err
@@ -1914,9 +2164,9 @@ err("failed")      # {"success": False, "data": "", "error": "failed"}
 
 ---
 
-## 17. Extension Points
+## 21. Extension Points
 
-### 17.1 Custom Graph Nodes
+### 21.1 Custom Graph Nodes
 
 Add arbitrary LangGraph nodes to the orchestrator's graph:
 
@@ -1934,7 +2184,7 @@ orchestrator = FlowOrchestrator(
 
 Custom nodes are connected: `supervisor --conditional--> custom_node` and `custom_node --> aggregator`.
 
-### 17.2 Custom PlanGenerator
+### 21.2 Custom PlanGenerator
 
 ```python
 from langdeep import PlanGenerator
@@ -1962,7 +2212,7 @@ orchestrator = FlowOrchestrator(
 )
 ```
 
-### 17.3 Custom TaskRunner
+### 21.3 Custom TaskRunner
 
 ```python
 from langdeep import TaskRunner, ok, err
@@ -1989,7 +2239,7 @@ orchestrator = FlowOrchestrator(
 )
 ```
 
-### 17.4 Custom ResultMerger
+### 21.4 Custom ResultMerger
 
 ```python
 from langdeep import ResultMerger
@@ -2021,9 +2271,9 @@ orchestrator = FlowOrchestrator(
 
 ---
 
-## 18. Best Practices
+## 22. Best Practices
 
-### 18.1 Project Structure
+### 22.1 Project Structure
 
 ```
 my_ai_project/
@@ -2049,14 +2299,14 @@ my_ai_project/
 └── execution_policy.json      # Optional policy file
 ```
 
-### 18.2 Model Naming Conventions
+### 22.2 Model Naming Conventions
 
 - Use a consistent naming scheme: `provider_model_variant` (e.g., `deepseek_v4_pro`, `openai_gpt4o`)
 - Keep `name` (registry key) and `model_name` (API identifier) distinct
 - Put API keys in environment variables, never hardcode them in `@model` decorators
 - Use `extra_params` for provider-specific options (timeout, api_version, etc.)
 
-### 18.3 Agent Design
+### 22.3 Agent Design
 
 - **Single responsibility:** Each agent should do one thing well
 - **Descriptive routing keywords:** Include common user phrasings that should trigger this agent
@@ -2064,21 +2314,21 @@ my_ai_project/
 - **Priority levels:** Higher numbers run first in `priority_queue` strategy
 - **Factory functions should be lightweight:** The factory is called once and cached. Don't put heavy initialization outside the factory.
 
-### 18.4 Plan Design
+### 22.4 Plan Design
 
 - **Keep tasks coarse-grained:** Each task should be a meaningful unit of work, not a single API call
 - **Minimize dependencies:** Only declare `depends_on` when truly required. The more dependencies, the less parallelism.
 - **Use parallel markers:** Mark truly independent tasks with `"parallel": true`
 - **Provide fallback plans:** For production, register a well-designed fallback plan instead of relying on `FallbackPlanGenerator`
 
-### 18.5 Provider Factories
+### 22.5 Provider Factories
 
 - **Always pop custom keys from `extra_params`** before passing to the LLM constructor to avoid duplicate keyword errors
 - **Make a copy of `extra_params`** with `dict()` to avoid mutating the config's original dict
 - **Use `ProviderImportError`** for missing optional packages
 - **Validate required credentials** early and raise clear `ValueError`
 
-### 18.6 Error Handling
+### 22.6 Error Handling
 
 - Catch `OrchestrationError` at the top level of your application
 - Use `e.to_dict()` for logging structured error data
@@ -2087,9 +2337,9 @@ my_ai_project/
 
 ---
 
-## 19. Troubleshooting
+## 23. Troubleshooting
 
-### 19.1 Model Not Registered
+### 23.1 Model Not Registered
 
 **Symptom:**
 ```
@@ -2104,7 +2354,7 @@ ModelNotFoundError: [MODEL_NOT_FOUND] Model 'my_model' is not registered
 3. **Import error in the file.** Check logs for `Module load failed` messages — a bad import prevents the whole module from loading.
 4. **Wrong model name in code.** Verify the name matches exactly: `@model(name="my_model")` → `supervisor_model="my_model"`.
 
-### 19.2 Module Load Failed
+### 23.2 Module Load Failed
 
 **Symptom:**
 ```
@@ -2117,7 +2367,7 @@ ERROR ... component_module=models.my_model error=No module named 'langdeep.regis
 - `from langdeep.core.registry.model_registry import ModelConfig` (not `langdeep.registry`)
 - `from langdeep import model, agent, provider, regist_tool` (top-level exports)
 
-### 19.3 Duplicate Keyword Argument
+### 23.3 Duplicate Keyword Argument
 
 **Symptom:**
 ```
@@ -2134,7 +2384,7 @@ request_timeout = extra.pop("request_timeout", 90)
 # Now **extra no longer contains request_timeout
 ```
 
-### 19.4 Tool Call Not Supported
+### 23.4 Tool Call Not Supported
 
 **Symptom:**
 ```
@@ -2148,7 +2398,7 @@ Error code: 400 - {'error': {'message': 'deepseek-reasoner does not support this
 2. If using DeepSeek V4, ensure non-thinking mode is active when making tool calls
 3. As a workaround, remove `tool_choice="required"` from the router (the `_parse_tool_call` function handles text responses as fallback)
 
-### 19.5 Missing API Key
+### 23.5 Missing API Key
 
 **Symptom:**
 ```
@@ -2164,7 +2414,7 @@ Or pass it in the decorator (not recommended for production):
 @model(name="my_model", provider="deepseek", api_key="sk-...")
 ```
 
-### 19.6 Agent Returns "No Answer"
+### 23.6 Agent Returns "No Answer"
 
 **Symptom:**
 ```
@@ -2177,7 +2427,7 @@ Or pass it in the decorator (not recommended for production):
 2. No agent was matched — add more routing keywords or check if the user input is handled
 3. Agent ran but returned empty output — check the agent's implementation
 
-### 19.7 Tasks Not Running in Parallel
+### 23.7 Tasks Not Running in Parallel
 
 **Symptom:** Tasks that should run in parallel are executing sequentially.
 
@@ -2187,7 +2437,7 @@ Or pass it in the decorator (not recommended for production):
 3. Task `depends_on` — over-specifying dependencies prevents parallel execution
 4. The plan's `"parallel"` markers — the planner might have set them to `false`
 
-### 19.8 Getting Help
+### 23.8 Getting Help
 
 Check logs for structured error context:
 ```

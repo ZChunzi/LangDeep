@@ -12,6 +12,7 @@ from langdeep.core.scheduling.task_scheduler import (
     TaskScheduler, ScheduledTask, TriggerType, TriggerType as TT,
     ConditionContext,
 )
+from langdeep.core.scheduling.persistent_store import TaskStore
 
 # We need a minimal FlowOrchestrator-like object for the scheduler
 class FakeOrchestrator:
@@ -39,6 +40,44 @@ def test_register_and_list():
     assert len(tasks) == 1
     assert tasks[0].id == "t1"
     assert tasks[0].next_run is not None
+
+
+def test_task_store_save_task_updates_recovery_index():
+    store = TaskStore()
+    task = ScheduledTask(
+        id="persisted",
+        name="Persisted",
+        trigger_type=TriggerType.INTERVAL,
+        trigger_config={"seconds": 60},
+        workflow="wf",
+        params={"user_input": "hello"},
+    )
+
+    store.save_task(task)
+
+    recovered = store.load_all()
+    assert store.count() == 1
+    assert len(recovered) == 1
+    assert recovered[0].id == "persisted"
+    assert recovered[0].params["user_input"] == "hello"
+
+
+def test_task_store_delete_task_updates_recovery_index():
+    store = TaskStore()
+    task = ScheduledTask(
+        id="delete_me",
+        name="DeleteMe",
+        trigger_type=TriggerType.INTERVAL,
+        trigger_config={"seconds": 60},
+        workflow="wf",
+    )
+    store.save_task(task)
+
+    store.delete_task("delete_me")
+
+    assert store.load_task("delete_me") is None
+    assert store.load_all() == []
+    assert store.count() == 0
 
 
 def test_start_stop():

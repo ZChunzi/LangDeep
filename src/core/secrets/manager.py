@@ -42,6 +42,13 @@ class SecretsManager:
             self._providers.append(provider)
         logger.info("Secrets provider registered", extra={"type": type(provider).__name__})
 
+    def add_provider(self, provider: SecretsProvider) -> None:
+        """Alias for :meth:`register_provider`.
+
+        Kept for compatibility with the public README and developer guide.
+        """
+        self.register_provider(provider)
+
     def get_secret(self, key: str) -> Optional[str]:
         """Resolve a secret by trying each registered provider in order.
 
@@ -61,6 +68,14 @@ class SecretsManager:
                     extra={"provider": type(provider).__name__, "key": key},
                 )
         return None
+
+    def resolve(self, key: str) -> Optional[str]:
+        """Alias for :meth:`get_secret`.
+
+        This name reads better in application code that resolves logical
+        secret names such as ``"database.url"``.
+        """
+        return self.get_secret(key)
 
     def list_providers(self) -> List[str]:
         """Return the class names of all registered providers."""

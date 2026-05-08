@@ -181,7 +181,33 @@ def test_max_concurrency_respected():
     result = ex.execute(state)
     assert "t1" in result["agent_results"]
     assert "t2" in result["agent_results"]
-    assert Slow._peak <= 2  # semaphore allows at most max_concurrency
+    assert Slow._peak <= 1  # semaphore allows at most max_concurrency
+
+
+def test_threaded_max_concurrency_respected_inside_running_loop():
+    """Threaded fallback also honors max_concurrency when called from async code."""
+    _register_agents()
+    Slow = _register_slow_agent()
+    agent_registry.register("slow", lambda: Slow(), AgentMetadata(
+        name="slow", description="slow", capabilities=[], routing_keywords=[], model_name="gpt4o",
+    ))
+
+    async def run():
+        ex = Executor(policy=ExecutionPolicy(strategy="gather", max_concurrency=1))
+        state = {
+            "messages": [HumanMessage(content="do it")],
+            "workflow_plan": [
+                {"id": "t1", "agent": "slow", "depends_on": [], "status": "pending"},
+                {"id": "t2", "agent": "slow", "depends_on": [], "status": "pending"},
+            ],
+            "task_context": {},
+        }
+        result = ex.execute(state)
+        assert "t1" in result["agent_results"]
+        assert "t2" in result["agent_results"]
+
+    asyncio.run(run())
+    assert Slow._peak <= 1
 
 
 # ── Skip completed tasks ────────────────────────────────────

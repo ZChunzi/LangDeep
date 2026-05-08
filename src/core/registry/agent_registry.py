@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Optional
 from dataclasses import dataclass, field
 
 from ..logging import get_logger
-from ..errors import AgentNotFoundError
+from ..errors import AgentBuildError, AgentNotFoundError
 
 logger = get_logger(__name__)
 
@@ -19,7 +19,10 @@ class AgentMetadata:
     model_name: str = "default"
     tools: List[str] = field(default_factory=list)
     system_prompt: Optional[str] = None
+    prompt_path: Optional[str] = None
     priority: int = 1
+    auto_build: bool = False
+    agent_type: str = "react"
 
 
 class AgentRegistry:
@@ -54,7 +57,25 @@ class AgentRegistry:
                 context={"available": list(self._factories.keys())},
             )
         if name not in self._agents:
-            self._agents[name] = self._factories[name]()
+            meta = self._metadata[name]
+            factory = self._factories[name]
+            instance = factory()
+
+            if instance is None and meta.auto_build:
+                from ..agent_builder import agent_builder_registry
+
+                instance = agent_builder_registry.build(meta)
+
+            if instance is None:
+                raise AgentBuildError(
+                    f"Agent '{name}' factory returned None. Use auto_build=True or return a runnable agent.",
+                    context={"agent": name, "auto_build": meta.auto_build},
+                )
+
+            from ..agent_builder import validate_agent_runnable
+
+            validate_agent_runnable(instance)
+            self._agents[name] = instance
             logger.debug("Agent instance created", extra={"agent_name": name})
         return self._agents[name]
 
