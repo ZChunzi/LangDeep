@@ -1,50 +1,79 @@
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/ZChunzi/LangDeep/main/.github/main/assets/langdeep-logo.png" alt="LangDeep Logo" width="200"/>
+
 # LangDeep
 
-LangDeep is a decorator-driven multi-agent workflow framework built on LangChain and LangGraph. It provides model, provider, tool, agent, memory, cache, IM, sandbox, process, scheduling, observability, and runtime diagnostic primitives for building controlled agent systems.
+**注解驱动、面向企业场景设计的多 Agent 工作流框架**
 
-**Current version:** `2.0.0`
+[![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+[![LangChain](https://img.shields.io/badge/LangChain-%3E%3D0.3.0-orange)](https://github.com/langchain-ai/langchain)
+[![LangGraph](https://img.shields.io/badge/LangGraph-%3E%3D0.2.0-blueviolet)](https://github.com/langchain-ai/langgraph)
 
-**Project status:** Beta. The core API is stable enough for controlled internal pilots. Production usage should still include organization-specific reviews for credentials, model providers, audit logging, sandbox policy, persistence, and operations.
+**项目状态：Beta - v2.0.0**
 
-## What v2.0.0 Provides
+核心 API 已进入第二个大版本，适合企业内部受控试点。关键生产环境仍应先完成模型供应商、密钥、审计、沙箱、持久化和运维策略评审。
 
-- Decorator-based registration for models, providers, tools, agents, memory, cache, IM channels, and sandboxes.
-- `FlowOrchestrator` for supervisor routing, optional planning, task execution, and aggregation.
-- Two-tier routing: keyword fast path first, LLM tool-call fallback second.
-- Workflow execution policies for `gather`, `sequential`, and `priority_queue` strategies.
-- Structured workflow schema validation through `WorkflowPlan`, `WorkflowTask`, and `validate_workflow_plan`.
-- Runtime preflight diagnostics through `validate_runtime()` and `RuntimeValidator`.
-- Health checks and in-process metrics through `HealthChecker` and `MetricsCollector`.
-- Built-in mock model provider for local tests and examples.
-- Optional provider integrations for OpenAI-compatible, Anthropic, Azure OpenAI, Ollama, Vertex AI, Google GenAI, and DeepSeek providers.
+</div>
 
-## Installation
+---
 
-Install the package:
+## ✨ 为什么选择 LangDeep？
+
+LangDeep 基于 **LangChain** 和 **LangGraph** 构建，提供一套以注册表和装饰器为核心的多 Agent 工作流框架。你可以用 `@model`、`@regist_tool`、`@agent` 等声明式 API 注册组件，再由 `FlowOrchestrator` 统一完成 Supervisor 路由、Planner 规划、Executor 执行和 Aggregator 聚合。
+
+v2.0.0 的重点是稳健性：新增运行时诊断、增强健康检查、公开模型配置快照接口，并完善测试与覆盖率门槛，便于在企业系统中做启动前校验和持续集成。
+
+- **🎨 注解驱动**：使用 `@model`、`@provider`、`@regist_tool`、`@agent`、`@memory`、`@cache`、`@im_channel`、`@sandbox` 注册组件。
+- **🧠 Supervisor 路由**：先走关键词快速路由，再走 LLM tool-call 路由，降低简单请求的调度成本。
+- **📋 任务规划与执行**：支持 LLM 动态规划、显式 `workflow_plan`、依赖排序、并发执行和重试。
+- **🔌 模型 Provider 扩展**：内置 OpenAI、Anthropic、Azure OpenAI、Ollama、Vertex AI、Google GenAI、DeepSeek、mock provider，也支持自定义 provider。
+- **🧩 企业扩展点**：可替换 `RoutingStrategy`、`PlanGenerator`、`TaskRunner`、`ResultMerger`。
+- **🗄️ 存储与缓存抽象**：支持 `@memory`、`@cache` 注册可插拔后端；LLM 响应缓存默认关闭，可显式启用。
+- **💬 IM 接入层**：提供 `@im_channel`、`WebhookReceiver`、`IMMessage`、`PlatformType` 等适配层能力。
+- **🔒 沙箱执行**：内置 `SubprocessSandbox` 和 `@sandbox`；它适合可信或半可信本地任务，不应作为不可信代码的完整安全边界。
+- **🔐 密钥管理**：提供 `SecretsManager`、`EnvSecretsProvider`，避免在业务代码中硬编码密钥。
+- **🔄 流程生命周期**：提供 `ProcessManager`、`ProcessState` 等长流程管理基础设施。
+- **📊 可观测性**：`HealthChecker`、`MetricsCollector`、`FlowOrchestrator.health()` 提供运行状态与基础指标。
+- **✅ 启动前诊断**：`validate_runtime()` 检查模型、Provider、Agent、Tool 引用和可选 Agent 实例化，提前发现配置漂移。
+
+---
+
+## 📦 安装
+
+### PyPI 安装
 
 ```bash
 pip install langdeep
 ```
 
-Install from this repository:
+### 源码安装
 
 ```bash
 git clone https://github.com/ZChunzi/LangDeep.git
-cd LangDeep/LangDeep
+cd LangDeep
 pip install -e .
 ```
 
-Optional dependency groups:
+### 可选依赖
 
 ```bash
+# 安装可选模型 Provider 依赖
 pip install -e ".[all]"
+
+# 安装持久化相关依赖
 pip install -e ".[persist]"
+
+# 安装测试、覆盖率、Lint、构建工具
 pip install -e ".[dev]"
 ```
 
-## Quick Start
+---
 
-This example uses the built-in `mock` provider, so it does not require any external API key.
+## 🚀 快速开始：无外部 API Key 示例
+
+下面示例使用内置 `mock` provider，可以直接在本地运行。注意：`@regist_tool` 包装的函数必须有 docstring，因为 LangChain 在创建 Tool 时会校验描述。
 
 ```python
 from langchain_core.messages import AIMessage, HumanMessage
@@ -57,15 +86,15 @@ def mock_chat():
     pass
 
 
-@regist_tool(name="get_weather", description="Return a mocked weather report.")
+@regist_tool(name="get_weather", description="返回模拟天气。")
 def get_weather(city: str) -> str:
-    """Return a mocked weather report."""
+    """返回模拟天气。"""
     return f"{city}: sunny, 25C"
 
 
 @agent(
     name="weather_agent",
-    description="Answers simple weather questions.",
+    description="回答简单天气问题。",
     routing_keywords=["weather", "天气"],
     model="mock_chat",
     tools=["get_weather"],
@@ -87,6 +116,7 @@ def weather_agent():
     return WeatherAgent()
 
 
+# 企业服务启动前建议先做诊断
 validate_runtime(instantiate_agents=True).raise_for_errors()
 
 orchestrator = FlowOrchestrator(
@@ -102,11 +132,186 @@ for message in reversed(result["messages"]):
         break
 ```
 
-## Core API
+---
 
-### Models
+## 🧠 核心概念
 
-Register a model with `@model`. The `name` is the LangDeep registry name. The `provider` must match a registered provider.
+### 注册表与装饰器
+
+LangDeep 运行时围绕一组进程内 singleton 注册表工作。装饰器在模块 import 时写入注册表，`FlowOrchestrator` 初始化时读取当前注册表并构建 LangGraph。
+
+| 装饰器 / API | 注册内容 | 主要用途 |
+|---|---|---|
+| `@model` | `ModelConfig` | 注册模型配置，模型实例懒加载 |
+| `@provider` / `register_provider` | Provider 工厂 | 接入或覆盖模型提供商 |
+| `@regist_tool` | LangChain Tool | 注册可供 Agent 使用的工具 |
+| `@agent` | Agent 工厂和元数据 | 注册可路由、可执行的 Agent |
+| `@memory` | Memory 后端工厂 | 注册会话记忆后端 |
+| `@cache` | Cache 后端工厂 | 注册缓存后端 |
+| `@im_channel` | IM 处理器 | 注册消息平台处理器 |
+| `@sandbox` | Sandbox 后端 | 注册代码执行后端 |
+
+### FlowOrchestrator
+
+`FlowOrchestrator` 是主入口。当前版本公开的方法包括：
+
+- `invoke(user_input, context=None, workflow_plan=None, template_name=None)`
+- `ainvoke(user_input, context=None, workflow_plan=None, template_name=None)`
+- `astream(user_input, context=None, **kwargs)`
+- `health()`
+- `get_metrics()`
+- `graph`
+
+v2.0.0 没有公开 `run()` 方法，请使用 `invoke()`。
+
+### Agent 运行契约
+
+`@agent` 注册的工厂应返回一个可运行对象，至少提供：
+
+```python
+def invoke(self, state): ...
+```
+
+为了兼容异步执行，建议同时提供：
+
+```python
+async def ainvoke(self, state): ...
+```
+
+如果设置 `auto_build=True` 且工厂返回 `None`，LangDeep 会尝试通过已注册的 Agent Builder 自动构建 Agent。
+
+---
+
+## 🏗️ 架构图
+
+### 运行链路
+
+```mermaid
+flowchart LR
+    User["用户请求"] --> Orchestrator["FlowOrchestrator"]
+    Orchestrator --> Supervisor["Supervisor 路由节点"]
+
+    Supervisor -->|"关键词命中"| AgentNode["目标 Agent 节点"]
+    Supervisor -->|"LLM 选择 Agent"| AgentNode
+    Supervisor -->|"复杂任务"| Planner["Planner 生成 workflow_plan"]
+    Supervisor -->|"自定义路由"| CustomNode["Custom Node"]
+
+    Planner --> Executor["Executor 执行计划"]
+    Executor -->|"依赖满足 / 并发策略"| AgentA["Agent A"]
+    Executor --> AgentB["Agent B"]
+    Executor --> AgentN["Agent N"]
+
+    AgentNode --> Aggregator["Aggregator 聚合结果"]
+    CustomNode --> Aggregator
+    AgentA --> Aggregator
+    AgentB --> Aggregator
+    AgentN --> Aggregator
+
+    Aggregator --> FinalState["最终 State"]
+    FinalState --> User
+```
+
+### 注册表与基础设施
+
+```mermaid
+flowchart TB
+    subgraph App["应用代码"]
+        Models["@model"]
+        Providers["@provider / register_provider"]
+        Tools["@regist_tool"]
+        Agents["@agent"]
+        Memory["@memory"]
+        Cache["@cache"]
+        IM["@im_channel"]
+        Sandbox["@sandbox"]
+    end
+
+    subgraph Registries["LangDeep 注册表"]
+        ModelRegistry["model_registry"]
+        ProviderRegistry["provider_registry"]
+        ToolRegistry["tool_registry"]
+        AgentRegistry["agent_registry"]
+        MemoryRegistry["memory_registry"]
+        CacheRegistry["cache_registry"]
+        IMRegistry["im_channel_registry"]
+        SandboxRegistry["sandbox_registry"]
+    end
+
+    subgraph Runtime["运行时核心"]
+        Orchestrator["FlowOrchestrator"]
+        PromptLoader["MarkdownPromptLoader"]
+        ExecutionPolicy["ExecutionPolicy"]
+        Diagnostics["validate_runtime"]
+        Health["HealthChecker"]
+        Metrics["MetricsCollector"]
+        Secrets["SecretsManager"]
+        Process["ProcessManager"]
+    end
+
+    Models --> ModelRegistry
+    Providers --> ProviderRegistry
+    Tools --> ToolRegistry
+    Agents --> AgentRegistry
+    Memory --> MemoryRegistry
+    Cache --> CacheRegistry
+    IM --> IMRegistry
+    Sandbox --> SandboxRegistry
+
+    ModelRegistry --> Orchestrator
+    ProviderRegistry --> Orchestrator
+    ToolRegistry --> Orchestrator
+    AgentRegistry --> Orchestrator
+    PromptLoader --> Orchestrator
+    ExecutionPolicy --> Orchestrator
+
+    ModelRegistry --> Diagnostics
+    ToolRegistry --> Diagnostics
+    AgentRegistry --> Diagnostics
+
+    ModelRegistry --> Health
+    MemoryRegistry --> Health
+    CacheRegistry --> Health
+    ToolRegistry --> Health
+    AgentRegistry --> Health
+
+    Secrets -.-> Orchestrator
+    Process -.-> Orchestrator
+    Metrics -.-> Orchestrator
+```
+
+### 规划执行时序
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant O as FlowOrchestrator
+    participant S as Supervisor
+    participant P as Planner
+    participant E as Executor
+    participant A as Agent(s)
+    participant G as Aggregator
+
+    U->>O: invoke(user_input)
+    O->>S: route(messages, available_agents)
+    alt direct agent route
+        S->>A: run selected agent
+        A-->>G: agent result
+    else planner route
+        S->>P: create or reuse workflow_plan
+        P-->>E: task list
+        E->>A: execute tasks by dependency and policy
+        A-->>E: task results
+        E-->>G: agent_results
+    end
+    G-->>O: final messages/state
+    O-->>U: Dict[str, Any]
+```
+
+---
+
+## 🔌 模型与 Provider
+
+### 使用内置 Provider
 
 ```python
 import os
@@ -120,11 +325,11 @@ from langdeep import model
     api_key=os.getenv("OPENAI_API_KEY"),
     temperature=0.2,
 )
-def register_gpt4o():
+def gpt4o():
     pass
 ```
 
-Built-in provider names include:
+内置 Provider 名称：
 
 - `openai`
 - `anthropic`
@@ -135,9 +340,9 @@ Built-in provider names include:
 - `deepseek`
 - `mock`
 
-### Providers
+### 注册自定义 Provider
 
-Use `@provider` or `register_provider(name, factory)` when you need to add or override a model provider. Provider factories receive a `ModelConfig` and must return a `BaseChatModel`.
+Provider 工厂接收 `ModelConfig`，返回 LangChain `BaseChatModel`。
 
 ```python
 from langchain_core.language_models import BaseChatModel
@@ -156,9 +361,13 @@ def create_other_provider(config: ModelConfig) -> BaseChatModel:
 register_provider("other_provider", create_other_provider)
 ```
 
-### Tools
+> 注意：`register_provider()` 的当前签名是 `register_provider(name, factory)`，不是配置式函数；Provider 的 `base_url`、`api_key` 等参数应通过 `@model(..., base_url=..., api_key=...)` 或 `ModelConfig` 传入。
 
-`@regist_tool` wraps a Python function as a LangChain tool and registers metadata for filtering and diagnostics. The wrapped function must have a docstring because LangChain validates tool descriptions before LangDeep stores metadata.
+---
+
+## 🧩 Agent、Tool 与自动构建
+
+### 注册工具
 
 ```python
 from langdeep import regist_tool
@@ -166,18 +375,16 @@ from langdeep import regist_tool
 
 @regist_tool(
     name="search_docs",
-    description="Search internal documentation.",
+    description="搜索内部文档。",
     category="knowledge",
     tags=["internal", "docs"],
 )
 def search_docs(query: str) -> str:
-    """Search internal documentation."""
+    """搜索内部文档。"""
     return f"results for {query}"
 ```
 
-### Agents
-
-Agent factories registered by `@agent` should return an object with at least `invoke(state)`. For async execution compatibility, also provide `ainvoke(state)`.
+### 注册 Agent
 
 ```python
 from langchain_core.messages import AIMessage
@@ -186,9 +393,9 @@ from langdeep import agent
 
 @agent(
     name="support_agent",
-    description="Handles support questions.",
+    description="处理客服和支持问题。",
     capabilities=["support"],
-    routing_keywords=["support", "help"],
+    routing_keywords=["support", "help", "支持"],
     model="gpt4o",
     tools=["search_docs"],
 )
@@ -203,72 +410,26 @@ def support_agent():
     return SupportAgent()
 ```
 
-For automatic LangGraph ReAct agent construction, set `auto_build=True` and make sure the referenced model and tools are registered:
+### ReAct 自动构建
 
 ```python
 @agent(
     name="react_support",
-    description="Auto-built ReAct support agent.",
+    description="自动构建的 ReAct 支持 Agent。",
     model="gpt4o",
     tools=["search_docs"],
     auto_build=True,
+    agent_type="react",
 )
 def react_support():
     pass
 ```
 
-## FlowOrchestrator
+---
 
-`FlowOrchestrator` is the main runtime entry point.
+## 📋 工作流计划与执行策略
 
-```python
-from langdeep import ExecutionPolicy, FlowOrchestrator
-
-
-policy = ExecutionPolicy(
-    strategy="gather",
-    max_concurrency=5,
-    max_retries=3,
-    timeout_seconds=30,
-)
-
-orchestrator = FlowOrchestrator(
-    supervisor_model="gpt4o",
-    execution_policy=policy,
-    enable_checkpoint=False,
-)
-
-result = orchestrator.invoke("Analyze this request")
-```
-
-Public methods:
-
-- `invoke(user_input, context=None, workflow_plan=None, template_name=None)`: synchronous workflow execution.
-- `ainvoke(user_input, context=None, workflow_plan=None, template_name=None)`: async-compatible wrapper.
-- `astream(user_input, context=None, **kwargs)`: async generator over graph stream chunks.
-- `health()`: returns aggregated health information.
-- `get_metrics()`: returns in-process metrics from `MetricsCollector`.
-- `graph`: exposes the compiled LangGraph graph.
-
-Constructor options include:
-
-- `supervisor_model`: model registry name used by supervisor, planner, and aggregator.
-- `max_retries`: retry count used when no explicit `ExecutionPolicy` is supplied.
-- `enable_checkpoint`: enables LangGraph `MemorySaver` checkpointing by default.
-- `prompt_dir`: optional custom prompt directory.
-- `component_dirs`: Python module directories to auto-import.
-- `routing_strategy`: custom `RoutingStrategy`.
-- `workflow_templates_dir`: directory for YAML/JSON workflow templates.
-- `execution_policy`: `ExecutionPolicy` instance.
-- `custom_nodes`: custom LangGraph node callables.
-- `plan_generator`, `task_runner`, `result_merger`: extension points.
-- `memory`: registered memory backend name.
-- `process_manager`: optional `ProcessManager`.
-- `strict_component_import`: fail startup on component import errors.
-
-## Workflow Plans
-
-You can pass an explicit workflow plan to bypass LLM planning.
+### 显式 workflow_plan
 
 ```python
 plan = [
@@ -276,10 +437,10 @@ plan = [
     {"id": "write", "agent": "writer_agent", "depends_on": ["collect"], "status": "pending"},
 ]
 
-result = orchestrator.invoke("Prepare a market brief", workflow_plan=plan)
+result = orchestrator.invoke("生成市场简报", workflow_plan=plan)
 ```
 
-Validate workflow plans before execution:
+### 计划校验
 
 ```python
 from langdeep import validate_workflow_plan
@@ -292,9 +453,33 @@ validate_workflow_plan(
 )
 ```
 
-## Runtime Diagnostics
+### 执行策略
 
-`validate_runtime()` is designed for enterprise startup checks. It validates static registry wiring before the service accepts traffic.
+```python
+from langdeep import ExecutionPolicy
+
+
+policy = ExecutionPolicy(
+    strategy="priority_queue",
+    max_concurrency=3,
+    max_retries=3,
+    retry_backoff="exponential",
+    timeout_seconds=30,
+    fail_fast=False,
+)
+```
+
+支持策略：
+
+- `gather`：并发执行已就绪任务，受 `max_concurrency` 限制。
+- `sequential`：按依赖顺序串行执行。
+- `priority_queue`：优先执行高优先级任务。
+
+---
+
+## ✅ 企业化诊断与健康检查
+
+### 启动前诊断
 
 ```python
 from langdeep import validate_runtime
@@ -304,18 +489,16 @@ diagnostics = validate_runtime(instantiate_agents=True)
 diagnostics.raise_for_errors()
 ```
 
-It checks:
+`validate_runtime()` 会检查：
 
-- Model registry names and model names are non-empty.
-- Model providers are registered.
-- Model `temperature` and `max_tokens` are sane.
-- Agent metadata names match registry keys.
-- Agent model references exist.
-- Agent tool references exist.
-- Optional agent instantiation succeeds.
-- Tool metadata is internally consistent.
+- 模型注册名、模型名、Provider 是否有效。
+- `temperature`、`max_tokens` 是否合理。
+- Agent 元数据名称是否匹配注册表 key。
+- Agent 引用的模型和工具是否已注册。
+- `instantiate_agents=True` 时 Agent 是否能成功实例化。
+- Tool 元数据是否一致，描述是否缺失。
 
-The result is serializable:
+返回值可序列化：
 
 ```python
 {
@@ -326,29 +509,33 @@ The result is serializable:
 }
 ```
 
-## Health And Metrics
+### 健康检查与指标
 
 ```python
 health = orchestrator.health()
 metrics = orchestrator.get_metrics()
 ```
 
-`HealthChecker` probes registered model, memory, and cache backends and reports agent/tool registry consistency. `MetricsCollector` provides counters, gauges, histograms, and snapshot retrieval.
+`HealthChecker` 会探测模型、memory、cache 后端，并报告 Agent/Tool 注册表一致性。`MetricsCollector` 提供 counter、gauge、histogram 和快照读取。
 
-## Memory And Cache
+---
 
-Register memory backends:
+## 🗄️ Memory、Cache、Prompt
+
+### Memory
 
 ```python
 from langdeep import memory
 
 
-@memory(name="session_memory", description="In-process session memory")
+@memory(name="session_memory", description="进程内会话记忆")
 def session_memory():
     pass
 ```
 
-Register cache backends:
+如果 factory 返回 `None`，内置 `InMemoryBackend` 会被使用。
+
+### Cache
 
 ```python
 from langdeep import cache
@@ -359,9 +546,7 @@ def llm_cache():
     pass
 ```
 
-If the decorated factory returns `None`, LangDeep uses built-in in-memory implementations.
-
-LLM response caching is opt-in through the model registry:
+如果 factory 返回 `None`，内置 `MemoryCache` 会被使用。LLM 响应缓存默认关闭，需要显式启用：
 
 ```python
 from langdeep.core.registry.model_registry import model_registry
@@ -370,40 +555,75 @@ from langdeep.core.registry.model_registry import model_registry
 model_registry.enable_response_cache(ttl=300, max_entries=1024)
 ```
 
-## Sandbox, Process, And Secrets
+### Prompt
 
-LangDeep includes supporting infrastructure for production-oriented workflows:
+`MarkdownPromptLoader` 支持内置 Prompt 和外部 `prompt_dir` 覆盖。Prompt 会被缓存，可通过 loader 的 `reload()` 清理缓存。
 
-- `SubprocessSandbox` and `@sandbox` for controlled local command execution. The built-in subprocess sandbox is not a security boundary for untrusted code.
-- `ProcessManager` and `ProcessState` for long-running workflow lifecycle tracking.
-- `SecretsManager` and `EnvSecretsProvider` for layered environment-variable secret resolution.
-
-## Testing
-
-Run the standard test suite:
-
-```bash
-python -m pytest --cov --cov-report=term-missing --cov-report=xml
+```python
+orchestrator = FlowOrchestrator(
+    supervisor_model="gpt4o",
+    prompt_dir="./prompts",
+)
 ```
 
-Run the project test runner:
+---
+
+## 🔒 安全与生产边界
+
+LangDeep 提供企业化基础设施，但不会替你完成全部生产治理。
+
+- `SubprocessSandbox` 不是不可信代码的完整安全边界；生产环境应使用容器、权限、网络和资源隔离。
+- API Key 应通过 `SecretsManager`、环境变量或平台密钥系统注入，不应写死在源码中。
+- 接入 IM 平台时，应在业务侧确认签名验证、重试策略、权限边界和审计要求。
+- 接收外部传入 `workflow_plan` 时，应先运行 `validate_workflow_plan()`。
+- 服务启动时建议运行 `validate_runtime(instantiate_agents=True).raise_for_errors()`。
+- 对关键路径建议记录用户请求、路由目标、工作流计划、工具使用、失败原因和 trace id。
+
+---
+
+## 🧪 测试与质量门槛
 
 ```bash
-python tests/run_all.py
-```
-
-Run lint and build checks:
-
-```bash
+# 静态检查
 python -m ruff check src tests
+
+# 标准 pytest + 覆盖率
+python -m pytest --cov --cov-report=term-missing --cov-report=xml
+
+# 项目自定义测试运行器
+python tests/run_all.py
+
+# 编译检查
 python -m compileall -q src tests
+
+# 构建包
 python -m build --no-isolation
 ```
 
-## Version Notes
+当前覆盖率门槛在 `pyproject.toml` 中配置为 `90%`。
 
-`2.0.0` adds runtime diagnostics, stronger health checks, public model config snapshot APIs, updated documentation, and a Beta package classifier. It remains source-compatible with the v1.2 decorator and orchestrator patterns, but users should run `validate_runtime()` in CI or service bootstrap to catch configuration drift early.
+---
 
-## License
+## 📚 更多文档
 
-LangDeep is released under the MIT license.
+完整开发者指南见：
+
+- [docs/developer-guide.md](docs/developer-guide.md)
+
+---
+
+## 📌 v2.0.0 版本说明
+
+v2.0.0 重点改进：
+
+- 新增 `validate_runtime()`、`RuntimeValidator`、`RuntimeDiagnostics`。
+- `HealthChecker` 增加 memory/cache 后端探测和 Agent/Tool 注册表一致性报告。
+- `ModelRegistry` 增加 `get_config()`、`list_model_configs()` 公开快照接口。
+- 包版本升级到 `2.0.0`，项目状态调整为 Beta。
+- 补充诊断测试，保持标准测试和自定义测试运行器全量通过。
+
+---
+
+## 📄 License
+
+LangDeep 使用 MIT License。
