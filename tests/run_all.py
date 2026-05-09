@@ -67,6 +67,7 @@ TEST_MODULES = [
     "test_process",
     "test_sandbox",
     "test_observability",
+    "test_diagnostics",
     # Integration tests last
     "test_fuzz",
     "test_agent_capabilities",

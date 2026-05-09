@@ -51,6 +51,42 @@ def test_health_checker_all_returns_status():
     assert result.version == "test"
 
 
+def test_health_checker_checks_memory_and_cache_registries():
+    """check_all probes registered memory/cache backends instead of skipping them."""
+    from langdeep.core.memory.registry import memory_registry
+    from langdeep.core.cache.registry import cache_registry
+
+    memory_registry.register("mem", lambda: object())
+    cache_registry.register("cache", lambda: object())
+
+    result = HealthChecker().check_all()
+
+    assert result.checks["memory"]["mem"]["status"] == "ok"
+    assert result.checks["cache"]["cache"]["status"] == "ok"
+
+
+def test_health_checker_reports_backend_and_registry_errors():
+    """check_all exposes backend factory errors and registry diagnostic errors."""
+    from langdeep.core.cache.registry import cache_registry
+    from langdeep.core.memory.registry import memory_registry
+    from langdeep.core.registry.agent_registry import AgentMetadata, agent_registry
+
+    memory_registry.register("bad_mem", lambda: (_ for _ in ()).throw(RuntimeError("mem down")))
+    cache_registry.register("bad_cache", lambda: (_ for _ in ()).throw(RuntimeError("cache down")))
+    agent_registry.register(
+        "bad_agent",
+        lambda: object(),
+        AgentMetadata(name="bad_agent", description="", model_name="missing_model"),
+    )
+
+    result = HealthChecker().check_all()
+
+    assert result.status == "unhealthy"
+    assert result.checks["memory"]["bad_mem"]["status"] == "error"
+    assert result.checks["cache"]["bad_cache"]["status"] == "error"
+    assert result.checks["agents"]["status"] == "error"
+
+
 def test_health_checker_aggregate_healthy():
     """All-ok checks produce 'healthy' status."""
     checker = HealthChecker()

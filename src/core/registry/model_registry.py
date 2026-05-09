@@ -1,5 +1,6 @@
 """Model registry with dynamic provider registration."""
 
+import copy
 from typing import Any, Callable, Dict, List, Optional, Sequence
 from dataclasses import dataclass, field
 from langchain_core.language_models import BaseChatModel
@@ -261,6 +262,19 @@ class ModelRegistry:
 
     def list_models(self) -> list:
         return list(self._models.keys())
+
+    def get_config(self, name: str) -> ModelConfig:
+        """Return a copy of the registered model config."""
+        if name not in self._models:
+            raise ModelNotFoundError(
+                f"Model '{name}' is not registered",
+                context={"available": list(self._models.keys())},
+            )
+        return copy.deepcopy(self._models[name])
+
+    def list_model_configs(self) -> Dict[str, ModelConfig]:
+        """Return a copy of all registered model configs keyed by model name."""
+        return copy.deepcopy(self._models)
 
     @property
     def provider_registry(self) -> ProviderRegistry:

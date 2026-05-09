@@ -29,9 +29,13 @@ class HealthChecker:
         """
         checks: Dict[str, Any] = {}
 
-        for check_fn in (self._check_model_backends,
-                         self._check_memory_backends,
-                         self._check_cache_backends):
+        for check_fn in (
+            self._check_model_backends,
+            self._check_memory_backends,
+            self._check_cache_backends,
+            self._check_agent_registry,
+            self._check_tool_registry,
+        ):
             try:
                 result = check_fn(timeout)
                 checks.update(result)
@@ -70,7 +74,7 @@ class HealthChecker:
         """Probe each registered memory backend."""
         results: Dict[str, Any] = {"memory": {}}
         try:
-            from ..registry import memory_registry
+            from ..memory.registry import memory_registry
             backends = memory_registry.list_backends()
             for name in backends:
                 try:
@@ -87,7 +91,7 @@ class HealthChecker:
         """Probe each registered cache backend."""
         results: Dict[str, Any] = {"cache": {}}
         try:
-            from ..registry import cache_registry
+            from ..cache.registry import cache_registry
             backends = cache_registry.list_backends()
             for name in backends:
                 try:
@@ -97,6 +101,54 @@ class HealthChecker:
                     results["cache"][name] = {"status": "error", "detail": str(exc)}
         except ImportError:
             results["cache"] = {"status": "skipped", "detail": "cache_registry not available"}
+        return results
+
+    @staticmethod
+    def _check_agent_registry(timeout: int = 5) -> Dict[str, Any]:
+        """Report agent registry consistency without instantiating agents."""
+        results: Dict[str, Any] = {"agents": {}}
+        try:
+            from ..diagnostics import validate_runtime
+            from ..registry.agent_registry import agent_registry
+
+            diagnostics = validate_runtime(instantiate_agents=False)
+            agent_issues = [
+                issue.to_dict()
+                for issue in diagnostics.issues
+                if issue.component == "agent"
+            ]
+            results["agents"]["count"] = len(agent_registry.list_agents())
+            results["agents"]["status"] = "error" if any(
+                issue["severity"] == "error" for issue in agent_issues
+            ) else "ok"
+            if agent_issues:
+                results["agents"]["issues"] = agent_issues
+        except Exception as exc:
+            results["agents"] = {"status": "error", "detail": str(exc)}
+        return results
+
+    @staticmethod
+    def _check_tool_registry(timeout: int = 5) -> Dict[str, Any]:
+        """Report tool registry consistency."""
+        results: Dict[str, Any] = {"tools": {}}
+        try:
+            from ..diagnostics import validate_runtime
+            from ..registry.tool_registry import tool_registry
+
+            diagnostics = validate_runtime(instantiate_agents=False)
+            tool_issues = [
+                issue.to_dict()
+                for issue in diagnostics.issues
+                if issue.component == "tool"
+            ]
+            results["tools"]["count"] = len(tool_registry.list_tools())
+            results["tools"]["status"] = "error" if any(
+                issue["severity"] == "error" for issue in tool_issues
+            ) else "ok"
+            if tool_issues:
+                results["tools"]["issues"] = tool_issues
+        except Exception as exc:
+            results["tools"] = {"status": "error", "detail": str(exc)}
         return results
 
     # ── Aggregation ──────────────────────────────────────────────────

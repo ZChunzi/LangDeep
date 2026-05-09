@@ -29,6 +29,12 @@ from langdeep.core.sandbox import BaseSandbox, SubprocessSandbox, sandbox_regist
 from langdeep.core.process import ProcessManager, ProcessState
 from langdeep.core.secrets import secrets_manager, EnvSecretsProvider
 from langdeep.core.observability import HealthChecker, MetricsCollector
+from langdeep.core.diagnostics import (
+    DiagnosticIssue,
+    RuntimeDiagnostics,
+    RuntimeValidator,
+    validate_runtime,
+)
 from langdeep.core.execution.execution_policy import ExecutionPolicy
 from langdeep.core.agent_builder import BaseAgentBuilder, ReActAgentBuilder, agent_builder_registry
 from langdeep.core.planner import WorkflowPlanner, WorkflowNode, NodeType
@@ -48,7 +54,7 @@ from langdeep.core.errors import (
 )
 from langdeep.core.logging import get_logger, set_trace_context, get_trace_id
 
-__version__ = "1.2.4"
+__version__ = "2.0.0"
 
 
 def register_provider(name: str, factory: Callable[[ModelConfig], BaseChatModel]) -> Callable[[ModelConfig], BaseChatModel]:
@@ -130,4 +136,8 @@ __all__ = [
     # Observability
     "HealthChecker",
     "MetricsCollector",
+    "DiagnosticIssue",
+    "RuntimeDiagnostics",
+    "RuntimeValidator",
+    "validate_runtime",
 ]

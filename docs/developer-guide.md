@@ -1,6 +1,6 @@
 # LangDeep Framework — Developer Guide
 
-**Version 1.2.3** | **License MIT**
+**Version 2.0.0** | **License MIT**
 
 ---
 
@@ -62,6 +62,7 @@ LangDeep is a decorator-driven multi-agent orchestration framework built on Lang
 | Secrets management | `SecretsManager` + pluggable `SecretsProvider` for credential resolution |
 | Process lifecycle | `ProcessManager` with suspend/resume and signal-based workflow control |
 | Observability | `HealthChecker` health checks + `MetricsCollector` in-process metrics |
+| Runtime diagnostics | `validate_runtime()` preflight checks for model, agent, and tool registry wiring |
 
 ---
 
@@ -1616,6 +1617,8 @@ Process signals are caught mid-execution and trigger the appropriate state trans
 
 The observability subsystem provides health checks and metrics collection for runtime monitoring of orchestration pipelines.
 
+v2.0 also exposes startup diagnostics for enterprise deployments. Diagnostics are stricter than health checks: they validate static registry wiring before accepting traffic, while health checks report current component availability.
+
 ### 17.2 HealthChecker
 
 ```python
@@ -1661,6 +1664,35 @@ collector = MetricsCollector()
 collector.record_invocation(latency_ms=1500)
 collector.record_error("timeout")
 report = collector.get_metrics()
+```
+
+### 17.5 Runtime Diagnostics
+
+Use `validate_runtime()` during application bootstrap or CI smoke tests:
+
+```python
+from langdeep import validate_runtime
+
+diagnostics = validate_runtime(instantiate_agents=True)
+diagnostics.raise_for_errors()
+```
+
+The diagnostics layer checks:
+
+- Registered models reference available providers.
+- Model configs contain non-empty model names and valid token limits.
+- Agent metadata points to registered models and tools.
+- Optional Agent instantiation succeeds when `instantiate_agents=True`.
+
+The return value is structured and can be serialized:
+
+```python
+{
+    "ok": True,
+    "error_count": 0,
+    "warning_count": 0,
+    "issues": [],
+}
 ```
 
 ---

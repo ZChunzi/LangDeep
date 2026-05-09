@@ -11,8 +11,8 @@
 [![LangChain](https://img.shields.io/badge/LangChain-%3E%3D0.3.0-orange)](https://github.com/langchain-ai/langchain)
 [![LangGraph](https://img.shields.io/badge/LangGraph-%3E%3D0.2.0-blueviolet)](https://github.com/langchain-ai/langgraph)
 
-⚠️ **项目状态：Alpha — v1.2.3**
-API 可能发生变动，欢迎试用并提供反馈，暂不建议直接部署到关键生产环境。
+**项目状态：Beta — v2.0.0**
+核心 API 已进入第二个大版本，适合在企业内部场景做受控试点；关键生产环境仍应先完成模型、密钥、审计、沙箱和运维策略评审。
 
 </div>
 
@@ -20,7 +20,7 @@ API 可能发生变动，欢迎试用并提供反馈，暂不建议直接部署�
 
 ## ✨ 为什么选择 LangDeep？
 
-LangDeep 是一个基于 **LangChain** 和 **LangGraph** 构建的，**注解驱动**、**开箱即用**、面向企业场景设计的多 Agent 工作流框架。它旨在帮助开发者用极少的代码，快速搭建复杂的多 Agent 协作系统。当前仍处于 Alpha 阶段，生产部署前需要结合自身场景补齐安全、运维和可靠性配置。
+LangDeep 是一个基于 **LangChain** 和 **LangGraph** 构建的，**注解驱动**、**开箱即用**、面向企业场景设计的多 Agent 工作流框架。它旨在帮助开发者用极少的代码，快速搭建复杂的多 Agent 协作系统。v2.0 增强了启动前诊断、健康检查和注册表一致性能力，生产部署前仍需要结合自身场景补齐安全、运维和可靠性配置。
 
 - **🎨 注解驱动**: 使用 `@model`、`@regist_tool`、`@agent`、`@memory`、`@cache`、`@im_channel` 装饰器声明式注册组件，告别样板代码。
 - **🧠 Supervisor（主管）智能调度**: 内置主管 Agent 模式，自动将任务路由给最合适的专家 Agent。
@@ -35,6 +35,7 @@ LangDeep 是一个基于 **LangChain** 和 **LangGraph** 构建的，**注解驱
 - **🔐 密钥管理**: 内置 `SecretsManager`，支持多环境变量源的分层密钥解析，避免硬编码敏感信息。
 - **🔄 进程管理**: `ProcessManager` 管理长时间运行的工作流生命周期，支持暂停（Suspend）/恢复（Resume）和信号机制。
 - **📊 可观测性**: 内置 `HealthChecker` 健康检查和 `MetricsCollector` 指标收集，支持运行时健康诊断。`FlowOrchestrator.health()` 一键检测。
+- **✅ 运行时诊断**: `validate_runtime()` 在服务启动前检查模型 Provider、Agent 模型引用、工具依赖和可选 Agent 实例化，提前暴露配置风险。
 
 ---
 
