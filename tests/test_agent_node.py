@@ -33,27 +33,38 @@ def _register_dummy_agent(name: str = "dummy"):
 
 
 def test_extract_from_dict_with_messages():
-    resp = {"messages": [AIMessage(content="hello"), HumanMessage(content="x")]}
-    assert _extract(resp) == "hello"
+    resp = {"messages": [AIMessage(content="hello", additional_kwargs={"reasoning_content": "think"}), HumanMessage(content="x")]}
+    content, kwargs = _extract(resp)
+    assert content == "hello"
+    assert kwargs == {"reasoning_content": "think"}
 
 
 def test_extract_from_string():
-    assert _extract("plain text") == "plain text"
+    content, kwargs = _extract("plain text")
+    assert content == "plain text"
+    assert kwargs == {}
 
 
 def test_extract_from_dict_no_messages():
-    assert _extract({"key": "val"}) == str({"key": "val"})
+    content, kwargs = _extract({"key": "val"})
+    assert content == str({"key": "val"})
+    assert kwargs == {}
 
 
 def test_extract_empty():
-    assert _extract(None) == "None"
-    assert _extract("") == ""
+    content, kwargs = _extract(None)
+    assert content == "None"
+    assert kwargs == {}
+    content, kwargs = _extract("")
+    assert content == ""
+    assert kwargs == {}
 
 
 def test_extract_list_content():
     """Handle content that is a list of dicts (e.g. multi-modal)."""
     resp = {"messages": [AIMessage(content=[{"text": "hello "}, {"text": "world"}])]}
-    assert _extract(resp) == "hello world"
+    content, kwargs = _extract(resp)
+    assert content == "hello world"
 
 
 def test_node_returns_aimessage():

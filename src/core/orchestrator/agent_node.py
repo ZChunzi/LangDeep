@@ -31,13 +31,13 @@ def make_agent_node(
                     "messages": msgs,
                     "task_context": state.get("task_context", {}),
                 })
-                content = _extract(resp)
+                content, additional_kwargs = _extract(resp)
                 logger.info(
                     "Direct agent call succeeded",
                     extra={"agent": agent_name, "attempt": attempt},
                 )
                 return {
-                    "messages": [AIMessage(content=content)],
+                    "messages": [AIMessage(content=content, additional_kwargs=additional_kwargs)],
                     "agent_results": {agent_name: content},
                 }
             except Exception as exc:
@@ -60,7 +60,13 @@ def make_agent_node(
     return agent_node
 
 
-def _extract(response: Any) -> str:
+def _extract(response: Any):
+    """Extract (content, additional_kwargs) from agent response.
+
+    Returns a tuple of (content_string, additional_kwargs_dict).
+    additional_kwargs preserves metadata such as reasoning_content from
+    providers like DeepSeek.
+    """
     if isinstance(response, dict) and "messages" in response:
         for m in reversed(response["messages"]):
             if isinstance(m, AIMessage) and m.content:
@@ -70,8 +76,8 @@ def _extract(response: Any) -> str:
                         c.get("text", "") if isinstance(c, dict) else str(c)
                         for c in content
                     ]
-                    return "".join(texts).strip()
-                return content
+                    return ("".join(texts).strip(), dict(m.additional_kwargs))
+                return (content, dict(m.additional_kwargs))
     if isinstance(response, str):
-        return response
-    return str(response)
+        return (response, {})
+    return (str(response), {})
