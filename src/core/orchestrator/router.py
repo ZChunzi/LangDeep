@@ -144,12 +144,13 @@ class DefaultRouter:
         )
         targets_str = ", ".join(self._valid_targets)
 
-        system_msg = SystemMessage(content=(
-            f"Call route_to_node to select the next step.\n"
+        tool_prompt = (
+            "You are a routing agent. Call 'route_to_node' with the correct 'next_node'.\n"
             f"Agents:\n{agent_list}\n"
             f"Valid targets: {targets_str}\n"
-            f"Rule: simple tasks → best agent; complex multi-step tasks → planner."
-        ))
+            "Rule: simple tasks → best agent; complex multi-step tasks → planner.\n"
+            "Respond ONLY by calling route_to_node."
+        )
 
         llm = model_registry.get_model(self._model_name)
         llm_with_tools = llm.bind_tools([self._routing_tool])
@@ -161,31 +162,53 @@ class DefaultRouter:
                 "model.calls",
                 tags={"component": "router", "model": self._model_name},
             )
+
         try:
             response = llm_with_tools.invoke(
-                [system_msg, HumanMessage(content=user_input)]
+                [SystemMessage(content=tool_prompt), HumanMessage(content=user_input)]
             )
             next_node = _parse_tool_call(response, self._valid_targets)
         except Exception as exc:
             model_status = "failure"
             logger.error("LLM routing call failed", extra={"error": str(exc)})
             next_node = "end"
-        finally:
-            if self._metrics is not None:
-                self._metrics.histogram(
-                    "model.duration_ms",
-                    (time.monotonic() - model_started) * 1000,
-                    tags={
-                        "component": "router",
-                        "model": self._model_name,
-                        "status": model_status,
-                    },
+
+        # Fallback: if tool-based routing failed to find a target and a
+        # plain-text response was given, try a second call without tools.
+        if next_node == "end" and available_agents:
+            text_prompt = (
+                "Choose the single best agent for this request.\n"
+                f"Agents:\n{agent_list}\n\n"
+                "Reply with ONLY the agent name, nothing else."
+            )
+            try:
+                response2 = llm.invoke(
+                    [SystemMessage(content=text_prompt), HumanMessage(content=user_input)]
                 )
-                if model_status == "failure":
-                    self._metrics.counter(
-                        "model.errors",
-                        tags={"component": "router", "model": self._model_name},
-                    )
+                fallback = _parse_text_routing(response2, self._valid_targets)
+                if fallback:
+                    logger.info("Fallback text routing succeeded",
+                                extra={"next_node": fallback})
+                    next_node = fallback
+            except Exception:
+                model_status = "failure"
+                logger.warning("Fallback text routing also failed")
+
+        if self._metrics is not None:
+            self._metrics.histogram(
+                "model.duration_ms",
+                (time.monotonic() - model_started) * 1000,
+                tags={
+                    "component": "router",
+                    "model": self._model_name,
+                    "status": model_status,
+                },
+            )
+            if model_status == "failure":
+                self._metrics.counter(
+                    "model.errors",
+                    tags={"component": "router", "model": self._model_name},
+                )
 
         logger.info("LLM routing result", extra={"next_node": next_node})
         return {"messages": [], "next": next_node}
@@ -221,19 +244,13 @@ def _parse_tool_call(response: Any, valid_targets: List[str]) -> str:
             return next_node
 
     # 2. Content-based match (including reasoning_content from DeepSeek thinking mode)
-    content = ""
-    if hasattr(response, "content") and response.content:
-        content = str(response.content)
-    if hasattr(response, "additional_kwargs") and response.additional_kwargs.get("reasoning_content"):
-        content += " " + response.additional_kwargs["reasoning_content"]
-
+    content = _collect_response_text(response)
     if content:
         lower = content.lower()
         for target in valid_targets:
             if target in lower:
                 return target
-
-        # 3. Fuzzy agent name match — check if description/reasoning mentions an agent
+        # Fuzzy match: weather_agent → "weather agent"
         for target in valid_targets:
             target_words = target.replace("_", " ").replace("-", " ")
             if target_words in lower:
@@ -241,3 +258,32 @@ def _parse_tool_call(response: Any, valid_targets: List[str]) -> str:
 
     logger.warning("Could not parse routing decision; defaulting to end")
     return "end"
+
+
+def _parse_text_routing(response: Any, valid_targets: List[str]) -> Optional[str]:
+    """Parse a plain-text LLM response to extract a valid target name."""
+    text = _collect_response_text(response)
+    if not text:
+        return None
+    lower = text.lower().strip().rstrip(".。!！")
+    # Direct match
+    if lower in valid_targets:
+        return lower
+    # Fuzzy match via underscore/space
+    for target in valid_targets:
+        if target in lower:
+            return target
+        target_words = target.replace("_", " ").replace("-", " ")
+        if target_words in lower:
+            return target
+    return None
+
+
+def _collect_response_text(response: Any) -> str:
+    """Collect all text from content + additional_kwargs (reasoning_content)."""
+    parts = []
+    if hasattr(response, "content") and response.content:
+        parts.append(str(response.content))
+    if hasattr(response, "additional_kwargs") and response.additional_kwargs.get("reasoning_content"):
+        parts.append(response.additional_kwargs["reasoning_content"])
+    return " ".join(parts)
