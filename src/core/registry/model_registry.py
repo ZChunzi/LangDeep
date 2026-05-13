@@ -55,7 +55,7 @@ class ProviderRegistry:
         self.register("vertexai", self._create_vertexai_model)
         self.register("google_genai", self._create_google_genai_model)
         self.register("deepseek", self._create_deepseek_model)
-        self.register("mock", self._create_mock_model)
+        self.register("mock", _create_mock_model)
         logger.info("Built-in providers registered", extra={"providers": list(self._providers.keys())})
 
     def register(
@@ -201,56 +201,82 @@ class ProviderRegistry:
 
     def _create_deepseek_model(self, config: ModelConfig) -> BaseChatModel:
         try:
-            from langchain_openai import ChatOpenAI
+            from langchain_openai import ChatOpenAI as _ChatOpenAI
         except ImportError:
             raise ProviderImportError(
                 "DeepSeek provider requires langchain-openai package",
                 context={"provider": "deepseek"},
             )
         base_url = config.base_url or "https://api.deepseek.com"
-        return ChatOpenAI(
-            model=config.model_name,
-            base_url=base_url,
-            api_key=config.api_key,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-            **(config.extra_params or {}),
-        )
+        extra = config.extra_params or {}
 
-    def _create_mock_model(self, config: ModelConfig) -> BaseChatModel:
-        from typing import List as ListType, Optional as Opt
-        from langchain_core.messages import BaseMessage, AIMessage
-        from langchain_core.callbacks import CallbackManagerForLLMRun
-        from langchain_core.outputs import ChatGeneration, ChatResult
+        # Build kwargs from ModelConfig — let extra_params override if needed.
+        kwargs: Dict[str, Any] = {
+            "model": config.model_name,
+            "base_url": base_url,
+            "api_key": config.api_key,
+        }
+        if config.temperature is not None:
+            kwargs["temperature"] = config.temperature
+        if config.max_tokens is not None:
+            kwargs["max_tokens"] = config.max_tokens
+        kwargs.update(extra)  # extra_params take precedence
 
-        class MockLLM(BaseChatModel):
-            model_name: str = "mock"
-            temperature: float = 0.7
+        # Use DeepSeekChatModel when thinking mode is enabled in extra_params,
+        # otherwise fall back to plain ChatOpenAI for non-thinking usage.
+        use_thinking = _detect_deepseek_thinking(extra)
+        if use_thinking:
+            from ..adapters.deepseek import DeepSeekChatModel
+            logger.info("DeepSeek thinking mode detected — using DeepSeekChatModel")
+            return DeepSeekChatModel(**kwargs)
 
-            def _generate(
-                self,
-                messages: ListType[BaseMessage],
-                stop: Opt[ListType[str]] = None,
-                run_manager: Opt[CallbackManagerForLLMRun] = None,
-                **kwargs: Any,
-            ) -> Any:
-                content = f"Mock response from {self.model_name}. Messages: {len(messages)}"
-                if messages:
-                    last = messages[-1].content
-                    if "calculate" in str(last).lower():
-                        content = "The calculation result is 42."
-                    elif "search" in str(last).lower():
-                        content = "Search results: AI is a fascinating field."
-                return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+        return _ChatOpenAI(**kwargs)
 
-            @property
-            def _llm_type(self) -> str:
-                return "mock"
 
-            def bind_tools(self, tools, **kwargs):
-                return self
+def _detect_deepseek_thinking(extra_params: Dict[str, Any]) -> bool:
+    """Check whether *extra_params* enables DeepSeek thinking mode."""
+    extra_body = extra_params.get("extra_body") or {}
+    thinking = extra_body.get("thinking") or {}
+    return bool(thinking.get("type") == "enabled" or thinking.get("enabled"))
 
-        return MockLLM(model_name=config.model_name, temperature=config.temperature)
+
+# ── Mock provider ────────────────────────────────────────────────────────────────────
+
+
+def _create_mock_model(config: ModelConfig) -> BaseChatModel:
+    from typing import List as ListType, Optional as Opt
+    from langchain_core.messages import BaseMessage, AIMessage
+    from langchain_core.callbacks import CallbackManagerForLLMRun
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    class MockLLM(BaseChatModel):
+        model_name: str = "mock"
+        temperature: float = 0.7
+
+        def _generate(
+            self,
+            messages: ListType[BaseMessage],
+            stop: Opt[ListType[str]] = None,
+            run_manager: Opt[CallbackManagerForLLMRun] = None,
+            **kwargs: Any,
+        ) -> Any:
+            content = f"Mock response from {self.model_name}. Messages: {len(messages)}"
+            if messages:
+                last = messages[-1].content
+                if "calculate" in str(last).lower():
+                    content = "The calculation result is 42."
+                elif "search" in str(last).lower():
+                    content = "Search results: AI is a fascinating field."
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+
+        @property
+        def _llm_type(self) -> str:
+            return "mock"
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    return MockLLM(model_name=config.model_name, temperature=config.temperature)
 
 
 class ModelRegistry:

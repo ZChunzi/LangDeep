@@ -36,8 +36,10 @@ def make_agent_node(
                     "Direct agent call succeeded",
                     extra={"agent": agent_name, "attempt": attempt},
                 )
+                # Ensure content is never None (DeepSeek thinking mode requires non-null content)
+                safe_content = content if content is not None else ""
                 return {
-                    "messages": [AIMessage(content=content, additional_kwargs=additional_kwargs)],
+                    "messages": [AIMessage(content=safe_content, additional_kwargs=additional_kwargs)],
                     "agent_results": {agent_name: content},
                 }
             except Exception as exc:
