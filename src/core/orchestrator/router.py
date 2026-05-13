@@ -214,14 +214,30 @@ def _last_human_input(messages: Sequence[BaseMessage]) -> str:
 
 
 def _parse_tool_call(response: Any, valid_targets: List[str]) -> str:
+    # 1. Structured tool_call (OpenAI-compatible format)
     if hasattr(response, "tool_calls") and response.tool_calls:
         next_node = response.tool_calls[0].get("args", {}).get("next_node", "")
         if next_node in valid_targets:
             return next_node
+
+    # 2. Content-based match (including reasoning_content from DeepSeek thinking mode)
+    content = ""
     if hasattr(response, "content") and response.content:
-        content = str(response.content).lower()
+        content = str(response.content)
+    if hasattr(response, "additional_kwargs") and response.additional_kwargs.get("reasoning_content"):
+        content += " " + response.additional_kwargs["reasoning_content"]
+
+    if content:
+        lower = content.lower()
         for target in valid_targets:
-            if target in content:
+            if target in lower:
                 return target
+
+        # 3. Fuzzy agent name match — check if description/reasoning mentions an agent
+        for target in valid_targets:
+            target_words = target.replace("_", " ").replace("-", " ")
+            if target_words in lower:
+                return target
+
     logger.warning("Could not parse routing decision; defaulting to end")
     return "end"
