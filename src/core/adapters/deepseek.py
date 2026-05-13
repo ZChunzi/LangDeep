@@ -58,9 +58,51 @@ def _sanitize(message: BaseMessage) -> BaseMessage:
 class DeepSeekChatModel(ChatOpenAI):
     """ChatOpenAI subclass that handles DeepSeek v4 thinking mode.
 
-    Intercepts message serialisation so that ``reasoning_content`` is
-    properly carried forward in multi-turn conversations.
+    LangChain's ``_convert_dict_to_message`` only puts ``function_call`` and
+    ``audio`` into ``additional_kwargs`` — everything else from the API
+    response (including ``reasoning_content``) is silently dropped.
+
+    This class overrides ``_create_chat_result`` to capture
+    ``reasoning_content`` from the raw API response and inject it into the
+    ``AIMessage.additional_kwargs``, and overrides the message serialisation
+    path to ensure it is carried forward in subsequent requests.
     """
+
+    def _create_chat_result(
+        self,
+        response: Any,
+        generation_info: Optional[Dict[str, Any]] = None,
+    ):
+        """Override: capture ``reasoning_content`` from the raw API response.
+
+        LangChain's ``_convert_dict_to_message`` discards unknown response
+        fields.  We extract ``reasoning_content`` from the raw dict *before*
+        the parent processes the response, then inject it back into the
+        resulting ``AIMessage.additional_kwargs``.
+        """
+        # Extract reasoning_content from the raw response dict
+        reasoning_contents: List[Optional[str]] = []
+        response_dict = (
+            response
+            if isinstance(response, dict)
+            else response.model_dump(
+                exclude={"choices": {"__all__": {"message": {"parsed"}}}},
+            )
+        )
+        for choice in response_dict.get("choices") or []:
+            raw_message = choice.get("message", {}) if isinstance(choice, dict) else {}
+            reasoning_contents.append(raw_message.get("reasoning_content"))
+
+        result = super()._create_chat_result(response, generation_info=generation_info)
+
+        # Inject reasoning_content into the AIMessage's additional_kwargs
+        for i, rc in enumerate(reasoning_contents):
+            if rc is not None and i < len(result.generations):
+                msg = result.generations[i].message
+                if isinstance(msg, AIMessage):
+                    msg.additional_kwargs["reasoning_content"] = rc
+
+        return result
 
     def _create_message_dicts(
         self,
