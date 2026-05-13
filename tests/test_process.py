@@ -124,6 +124,26 @@ def test_manager_terminate():
     assert result.state == ProcessState.TERMINATED
 
 
+def test_manager_await_human():
+    """Marking a process as awaiting human input stores the snapshot."""
+    pm = ProcessManager()
+    proc = pm.create("test")
+    result = pm.await_human(proc.pid, snapshot={"status": "waiting_confirmation"})
+    assert result is not None
+    assert result.state == ProcessState.AWAITING_HUMAN
+    assert result.snapshot == {"status": "waiting_confirmation"}
+
+
+def test_manager_update_snapshot():
+    """Updating a process snapshot does not change its state."""
+    pm = ProcessManager()
+    proc = pm.create("test")
+    result = pm.update_snapshot(proc.pid, {"progress": "done"})
+    assert result is not None
+    assert result.state == ProcessState.ACTIVE
+    assert result.snapshot == {"progress": "done"}
+
+
 def test_manager_suspend_already_terminated():
     """Suspending a terminated process returns None (idempotent)."""
     pm = ProcessManager()

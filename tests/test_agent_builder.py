@@ -9,6 +9,7 @@ from langdeep.core.errors import AgentBuildError, PromptNotFoundError
 from langdeep.core.registry.agent_registry import AgentMetadata
 from langdeep.core.registry.model_registry import ModelConfig, model_registry
 from langdeep.core.registry.tool_registry import ToolMetadata, tool_registry
+from langdeep.core.tools import PolicyAwareTool
 
 from conftest import SmartMockLLM, clean_registries
 
@@ -68,7 +69,7 @@ def test_react_builder_resolves_inline_and_file_prompt(tmp_path):
 
 def test_react_builder_build_passes_model_tools_and_prompt(monkeypatch):
     model_registry.register("mock", ModelConfig(provider="mock", model_name="mock"))
-    model_registry._instance_cache.set("mock", SmartMockLLM(model_name="mock"))
+    model_registry.set_model_instance("mock", SmartMockLLM(model_name="mock"))
 
     @lc_tool
     def sample_tool(query: str) -> str:
@@ -102,4 +103,5 @@ def test_react_builder_build_passes_model_tools_and_prompt(monkeypatch):
     assert agent.invoke({})["messages"][0].content == "ok"
     assert calls["model"] is model_registry.get_model("mock")
     assert [tool.name for tool in calls["tools"]] == ["sample_tool"]
+    assert isinstance(calls["tools"][0], PolicyAwareTool)
     assert calls["prompt"] == "be helpful"

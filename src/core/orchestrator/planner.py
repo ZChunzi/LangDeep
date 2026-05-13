@@ -1,5 +1,6 @@
 """Workflow planning — template-based and LLM-driven plan generation."""
 
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
@@ -7,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from ..logging import get_logger
 from ..errors import PlannerError, TemplateNotFoundError
+from ..observability.metrics import MetricsCollector
 from ..registry.agent_registry import agent_registry
 from ..registry.tool_registry import tool_registry
 from ...schemas import validate_workflow_plan
@@ -54,9 +56,15 @@ class FallbackPlanGenerator(PlanGenerator):
 class LLMPlanGenerator(PlanGenerator):
     """Uses an LLM to generate a multi-step workflow plan."""
 
-    def __init__(self, model_name: str, prompt_loader=None):
+    def __init__(
+        self,
+        model_name: str,
+        prompt_loader=None,
+        metrics_collector: Optional[MetricsCollector] = None,
+    ):
         self._model_name = model_name
         self._prompt_loader = prompt_loader
+        self._metrics = metrics_collector
 
     def generate(
         self,
@@ -64,8 +72,6 @@ class LLMPlanGenerator(PlanGenerator):
         available_agent_names: List[str],
     ) -> List[Dict[str, Any]]:
         from ..registry.model_registry import model_registry
-
-        llm = model_registry.get_model(self._model_name)
 
         try:
             if self._prompt_loader:
@@ -83,12 +89,34 @@ class LLMPlanGenerator(PlanGenerator):
                 f"Output only JSON — a list of tasks with id/agent/status fields."
             ))]
 
+        started = time.monotonic()
+        status = "success"
+        if self._metrics is not None:
+            self._metrics.counter(
+                "model.calls",
+                tags={"component": "planner", "model": self._model_name},
+            )
         try:
+            llm = model_registry.get_model(self._model_name)
             response = llm.invoke(prompt_msgs)
             return parse_plan_content(str(response.content))
         except Exception as exc:
+            status = "failure"
             logger.error("LLM plan generation failed", extra={"error": str(exc)})
             return FallbackPlanGenerator().generate(user_request, available_agent_names)
+        finally:
+            if self._metrics is not None:
+                tags = {"component": "planner", "model": self._model_name, "status": status}
+                self._metrics.histogram(
+                    "model.duration_ms",
+                    (time.monotonic() - started) * 1000,
+                    tags=tags,
+                )
+                if status == "failure":
+                    self._metrics.counter(
+                        "model.errors",
+                        tags={"component": "planner", "model": self._model_name},
+                    )
 
 
 # ── Planner node logic ───────────────────────────────────────────────────────────
@@ -107,19 +135,30 @@ class Planner:
         model_name: str,
         plan_generator: Optional[PlanGenerator] = None,
         prompt_loader=None,
+        metrics_collector: Optional[MetricsCollector] = None,
     ):
-        self._generator = plan_generator or LLMPlanGenerator(model_name, prompt_loader)
+        self._metrics = metrics_collector
+        self._generator = plan_generator or LLMPlanGenerator(
+            model_name,
+            prompt_loader,
+            metrics_collector=metrics_collector,
+        )
         self._fallback = FallbackPlanGenerator()
 
     def plan(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Produce a workflow_plan for the given state, reusing any existing plan."""
+        started = time.monotonic()
+        if self._metrics is not None:
+            self._metrics.counter("planning.requests")
         existing = state.get("workflow_plan")
         if existing and len(existing) > 0:
             logger.info("Reusing existing workflow plan", extra={"plan_size": len(existing)})
+            self._record_plan(started, status="reused", task_count=len(existing))
             return {"workflow_plan": existing}
 
         user_request = _last_human(state["messages"])
         agents = agent_registry.list_agents()
+        status = "success"
 
         try:
             plan = self._generator.generate(user_request, agents)
@@ -129,6 +168,7 @@ class Planner:
                 available_tools=tool_registry.list_tools(),
             ).to_task_dicts()
         except Exception as exc:
+            status = "fallback"
             logger.error("Plan generation failed, using fallback", extra={"error": str(exc)})
             plan = self._fallback.generate(user_request, agents)
             try:
@@ -144,7 +184,23 @@ class Planner:
                 )
 
         logger.info("Plan created", extra={"task_count": len(plan)})
+        self._record_plan(started, status=status, task_count=len(plan))
         return {"workflow_plan": plan}
+
+    def _record_plan(self, started: float, *, status: str, task_count: int) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.counter("planning.results", tags={"status": status})
+        if status == "fallback":
+            self._metrics.counter("planning.fallbacks")
+        if status == "reused":
+            self._metrics.counter("planning.reused")
+        self._metrics.histogram(
+            "planning.duration_ms",
+            (time.monotonic() - started) * 1000,
+            tags={"status": status},
+        )
+        self._metrics.histogram("planning.task_count", float(task_count), tags={"status": status})
 
 
 # ── Template support (kept separate — only loaded when a template dir is given) ──

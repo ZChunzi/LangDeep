@@ -1,6 +1,6 @@
 # LangDeep Developer Guide
 
-Version: `2.0.0`
+Version: `2.0.1`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
@@ -35,10 +35,11 @@ Optional dependency groups:
 
 ```bash
 pip install -e ".[all]"
-pip install -e ".[persist]"
 pip install -e ".[dev]"
 ```
 
+The `all` extra installs optional model provider dependencies. Individual provider
+groups are available as `anthropic`, `google-genai`, `vertexai`, and `ollama`.
 The `dev` extra includes test, coverage, lint, and build tooling used by the repository.
 
 ## 3. Runtime Model
@@ -77,7 +78,7 @@ Current package version is exposed as:
 ```python
 import langdeep
 
-assert langdeep.__version__ == "2.0.0"
+assert langdeep.__version__ == "2.0.1"
 ```
 
 ## 5. Registries
@@ -671,7 +672,7 @@ Health checks:
 from langdeep import HealthChecker
 
 
-status = HealthChecker(version="2.0.0").check_all()
+status = HealthChecker(version="2.0.1").check_all()
 print(status.status)
 print(status.checks)
 ```

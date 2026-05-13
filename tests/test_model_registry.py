@@ -12,15 +12,14 @@ from langdeep.core.registry.model_registry import (
     model_registry, provider_registry, ModelRegistry,
     ProviderRegistry, ModelConfig,
 )
-from langdeep.core.errors import ModelNotFoundError, ProviderNotFoundError
+from langdeep.core.errors import ConfigurationError, ModelNotFoundError, ProviderNotFoundError
 
 from conftest import clean_registries
 
 
 def setup_function():
     clean_registries()
-    # Re-register builtin providers (cleared by clean_registries)
-    provider_registry._register_builtin_providers()
+    provider_registry.reset()
 
 
 def test_model_registry_singleton():
@@ -46,7 +45,7 @@ def test_get_model_not_found():
 
 def test_list_models():
     clean_registries()
-    provider_registry._register_builtin_providers()
+    provider_registry.reset()
     assert model_registry.list_models() == []
     model_registry.register("m1", ModelConfig(provider="mock", model_name="m1"))
     assert "m1" in model_registry.list_models()
@@ -116,3 +115,60 @@ def test_custom_provider():
     llm = model_registry.get_model("custom_model")
     resp = llm.invoke([HumanMessage(content="x")])
     assert "custom: cm" in str(resp.content)
+
+
+def test_model_registry_lifecycle_snapshot_reset_and_duplicate_policy():
+    model_registry.register("life", ModelConfig(provider="mock", model_name="life"))
+    model = model_registry.get_model("life")
+    snapshot = model_registry.snapshot()
+
+    assert snapshot["namespace"] == "default"
+    assert "life" in snapshot["models"]
+    assert snapshot["cached_model_count"] == 1
+    assert model_registry.get_model("life") is model
+
+    try:
+        model_registry.register("life", ModelConfig(provider="mock", model_name="other"), replace=False)
+        assert False, "Should reject duplicate registration when replace=False"
+    except ConfigurationError:
+        pass
+
+    model_registry.reset()
+    assert model_registry.list_models() == []
+
+
+def test_model_registry_namespace_isolation_and_manual_instance():
+    tenant = ModelRegistry.for_namespace("tenant-a")
+    tenant.reset()
+    tenant.register("tenant_model", ModelConfig(provider="mock", model_name="tenant"))
+    tenant_model = tenant.get_model("tenant_model")
+
+    assert tenant.namespace == "tenant-a"
+    assert ModelRegistry("tenant-a") is tenant
+    assert "tenant_model" in tenant.list_models()
+    assert "tenant_model" not in model_registry.list_models()
+
+    replacement = tenant_model
+    tenant.set_model_instance("tenant_model", replacement)
+    assert tenant.get_model("tenant_model") is replacement
+    tenant.reset()
+
+
+def test_provider_registry_reset_snapshot_and_duplicate_policy():
+    providers = provider_registry.snapshot()
+    assert "mock" in providers
+
+    def custom_factory(config):
+        return provider_registry.get_provider("mock")(config)
+
+    provider_registry.register("dup_provider", custom_factory)
+    try:
+        provider_registry.register("dup_provider", custom_factory, replace=False)
+        assert False, "Should reject duplicate provider when replace=False"
+    except ConfigurationError:
+        pass
+
+    provider_registry.reset(include_builtins=False)
+    assert provider_registry.list_providers() == []
+    provider_registry.reset()
+    assert "mock" in provider_registry.list_providers()

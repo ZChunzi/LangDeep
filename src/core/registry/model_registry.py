@@ -1,6 +1,7 @@
 """Model registry with dynamic provider registration."""
 
 import copy
+import threading
 from typing import Any, Callable, Dict, List, Optional, Sequence
 from dataclasses import dataclass, field
 from langchain_core.language_models import BaseChatModel
@@ -8,6 +9,7 @@ from langchain_core.messages import BaseMessage
 
 from ..logging import get_logger
 from ..errors import (
+    ConfigurationError,
     ModelNotFoundError,
     ProviderNotFoundError,
     ProviderImportError,
@@ -33,12 +35,16 @@ class ProviderRegistry:
     """Registry for model provider factories."""
 
     _instance = None
-    _providers: Dict[str, Callable[[ModelConfig], BaseChatModel]] = {}
+    _class_lock = threading.Lock()
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._register_builtin_providers()
+            with cls._class_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._providers: Dict[str, Callable[[ModelConfig], BaseChatModel]] = {}
+                    cls._instance._registry_lock = threading.RLock()
+                    cls._instance._register_builtin_providers()
         return cls._instance
 
     def _register_builtin_providers(self):
@@ -52,20 +58,46 @@ class ProviderRegistry:
         self.register("mock", self._create_mock_model)
         logger.info("Built-in providers registered", extra={"providers": list(self._providers.keys())})
 
-    def register(self, provider_name: str, factory: Callable[[ModelConfig], BaseChatModel]) -> None:
-        self._providers[provider_name] = factory
+    def register(
+        self,
+        provider_name: str,
+        factory: Callable[[ModelConfig], BaseChatModel],
+        *,
+        replace: bool = True,
+    ) -> None:
+        with self._registry_lock:
+            if provider_name in self._providers and not replace:
+                raise ConfigurationError(
+                    f"Provider '{provider_name}' is already registered",
+                    context={"provider": provider_name},
+                )
+            self._providers[provider_name] = factory
         logger.debug("Provider registered", extra={"provider": provider_name})
 
     def get_provider(self, provider_name: str) -> Callable[[ModelConfig], BaseChatModel]:
-        if provider_name not in self._providers:
-            raise ProviderNotFoundError(
-                f"Provider '{provider_name}' is not registered",
-                context={"available": list(self._providers.keys())},
-            )
-        return self._providers[provider_name]
+        with self._registry_lock:
+            if provider_name not in self._providers:
+                raise ProviderNotFoundError(
+                    f"Provider '{provider_name}' is not registered",
+                    context={"available": list(self._providers.keys())},
+                )
+            return self._providers[provider_name]
 
     def list_providers(self) -> list:
-        return list(self._providers.keys())
+        with self._registry_lock:
+            return list(self._providers.keys())
+
+    def snapshot(self) -> Dict[str, Callable[[ModelConfig], BaseChatModel]]:
+        """Return a shallow snapshot of registered provider factories."""
+        with self._registry_lock:
+            return dict(self._providers)
+
+    def reset(self, *, include_builtins: bool = True) -> None:
+        """Clear providers and optionally re-register built-ins."""
+        with self._registry_lock:
+            self._providers.clear()
+            if include_builtins:
+                self._register_builtin_providers()
 
     # ── Provider factories ───────────────────────────────────────────────────
 
@@ -222,59 +254,104 @@ class ProviderRegistry:
 
 
 class ModelRegistry:
-    """Central model registry — maps model names to provider+config."""
+    """Namespace-aware model registry mapping model names to provider configs."""
 
     _instance = None
-    _models: Dict[str, ModelConfig] = {}
-    _instances: Dict[str, BaseChatModel] = {}
+    _registries: Dict[str, "ModelRegistry"] = {}
+    _class_lock = threading.Lock()
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._provider_registry = ProviderRegistry()
-            # Replace unbounded _instances with LRU cache
-            cls._instance._instance_cache: MemoryCache = MemoryCache(max_size=16)
-            cls._instance._response_cache: BaseCacheBackend = MemoryCache(max_size=0)  # disabled by default
-        return cls._instance
+    def __new__(cls, namespace: str = "default"):
+        namespace = namespace or "default"
+        with cls._class_lock:
+            if namespace not in cls._registries:
+                instance = super().__new__(cls)
+                instance._namespace = namespace
+                instance._models: Dict[str, ModelConfig] = {}
+                instance._provider_registry = ProviderRegistry()
+                # Replace unbounded instance storage with an LRU cache.
+                instance._instance_cache: MemoryCache = MemoryCache(max_size=16)
+                instance._response_cache: BaseCacheBackend = MemoryCache(max_size=0)
+                instance._registry_lock = threading.RLock()
+                cls._registries[namespace] = instance
+                if namespace == "default":
+                    cls._instance = instance
+            return cls._registries[namespace]
 
-    def register(self, name: str, config: ModelConfig) -> None:
-        self._models[name] = config
-        self._instance_cache.delete(name)
-        logger.info("Model registered", extra={"model_name": name, "provider": config.provider})
+    @classmethod
+    def for_namespace(cls, namespace: str) -> "ModelRegistry":
+        """Return an isolated registry for a namespace."""
+        return cls(namespace=namespace)
+
+    @property
+    def namespace(self) -> str:
+        return self._namespace
+
+    def register(self, name: str, config: ModelConfig, *, replace: bool = True) -> None:
+        with self._registry_lock:
+            if name in self._models and not replace:
+                raise ConfigurationError(
+                    f"Model '{name}' is already registered",
+                    context={"model": name, "namespace": self._namespace},
+                )
+            self._models[name] = copy.deepcopy(config)
+            self._instance_cache.delete(name)
+        logger.info(
+            "Model registered",
+            extra={"model_name": name, "namespace": self._namespace, "provider": config.provider},
+        )
 
     def get_model(self, name: str) -> BaseChatModel:
-        if name not in self._models:
-            raise ModelNotFoundError(
-                f"Model '{name}' is not registered",
-                context={"available": list(self._models.keys())},
-            )
-        instance = self._instance_cache.get(name)
-        if instance is None:
-            config = self._models[name]
-            instance = self._create_instance(config)
+        with self._registry_lock:
+            if name not in self._models:
+                raise ModelNotFoundError(
+                    f"Model '{name}' is not registered",
+                    context={"available": list(self._models.keys())},
+                )
+            instance = self._instance_cache.get(name)
+            if instance is None:
+                config = self._models[name]
+                instance = self._create_instance(config)
+                self._instance_cache.set(name, instance)
+                logger.debug(
+                    "Model instance created",
+                    extra={"model_name": name, "namespace": self._namespace},
+                )
+            return instance
+
+    def set_model_instance(self, name: str, instance: BaseChatModel) -> None:
+        """Set a cached model instance for a registered model."""
+        if not isinstance(instance, BaseChatModel):
+            raise TypeError(f"Expected BaseChatModel, got {type(instance).__name__}")
+        with self._registry_lock:
+            if name not in self._models:
+                raise ModelNotFoundError(
+                    f"Model '{name}' is not registered",
+                    context={"available": list(self._models.keys())},
+                )
             self._instance_cache.set(name, instance)
-            logger.debug("Model instance created", extra={"model_name": name})
-        return instance
 
     def _create_instance(self, config: ModelConfig) -> BaseChatModel:
         factory = self._provider_registry.get_provider(config.provider)
         return factory(config)
 
     def list_models(self) -> list:
-        return list(self._models.keys())
+        with self._registry_lock:
+            return list(self._models.keys())
 
     def get_config(self, name: str) -> ModelConfig:
         """Return a copy of the registered model config."""
-        if name not in self._models:
-            raise ModelNotFoundError(
-                f"Model '{name}' is not registered",
-                context={"available": list(self._models.keys())},
-            )
-        return copy.deepcopy(self._models[name])
+        with self._registry_lock:
+            if name not in self._models:
+                raise ModelNotFoundError(
+                    f"Model '{name}' is not registered",
+                    context={"available": list(self._models.keys())},
+                )
+            return copy.deepcopy(self._models[name])
 
     def list_model_configs(self) -> Dict[str, ModelConfig]:
         """Return a copy of all registered model configs keyed by model name."""
-        return copy.deepcopy(self._models)
+        with self._registry_lock:
+            return copy.deepcopy(self._models)
 
     @property
     def provider_registry(self) -> ProviderRegistry:
@@ -289,17 +366,20 @@ class ModelRegistry:
         disk_path: Optional[str] = None,
     ) -> None:
         """Enable LLM response caching (off by default — changes LLM semantics)."""
-        self._response_cache = MemoryCache(max_size=max_entries, default_ttl=ttl)
+        with self._registry_lock:
+            self._response_cache = MemoryCache(max_size=max_entries, default_ttl=ttl)
         logger.info("LLM response cache enabled", extra={"ttl": ttl, "max_entries": max_entries})
 
     def disable_response_cache(self) -> None:
-        self._response_cache.clear()
-        self._response_cache = MemoryCache(max_size=0)
+        with self._registry_lock:
+            self._response_cache.clear()
+            self._response_cache = MemoryCache(max_size=0)
         logger.info("LLM response cache disabled")
 
     def set_response_cache(self, backend: BaseCacheBackend) -> None:
         """Use a custom cache backend for LLM responses."""
-        self._response_cache = backend
+        with self._registry_lock:
+            self._response_cache = backend
         logger.info("LLM response cache set", extra={"backend": type(backend).__name__})
 
     def invoke_with_cache(self, model_name: str, messages: Sequence[BaseMessage], **kwargs) -> Any:
@@ -318,14 +398,34 @@ class ModelRegistry:
         )
         key = f"{model_name}:{hashlib.sha256(serialized.encode()).hexdigest()[:32]}"
 
-        cached = self._response_cache.get(key)
+        with self._registry_lock:
+            response_cache = self._response_cache
+
+        cached = response_cache.get(key)
         if cached is not None:
             logger.debug("LLM cache hit", extra={"model": model_name})
             return cached
 
         result = llm.invoke(messages, **kwargs)
-        self._response_cache.set(key, result)
+        response_cache.set(key, result)
         return result
+
+    def snapshot(self) -> Dict[str, Any]:
+        """Return a runtime snapshot with copied configs and cache sizes."""
+        with self._registry_lock:
+            return {
+                "namespace": self._namespace,
+                "models": copy.deepcopy(self._models),
+                "cached_model_count": len(self._instance_cache),
+                "response_cache_type": type(self._response_cache).__name__,
+            }
+
+    def reset(self) -> None:
+        """Clear model configs and runtime caches."""
+        with self._registry_lock:
+            self._models.clear()
+            self._instance_cache = MemoryCache(max_size=16)
+            self._response_cache = MemoryCache(max_size=0)
 
 
 # Global singletons

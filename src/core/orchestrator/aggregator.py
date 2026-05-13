@@ -1,5 +1,6 @@
 """Result aggregation — merges multi-agent outputs into a single coherent response."""
 
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
@@ -7,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from ..logging import get_logger
 from ..errors import AggregatorError
+from ..observability.metrics import MetricsCollector
 
 logger = get_logger(__name__)
 
@@ -28,9 +30,15 @@ class ResultMerger(ABC):
 class LLMMerger(ResultMerger):
     """Uses an LLM to synthesise multiple agent outputs into one answer."""
 
-    def __init__(self, model_name: str, prompt_loader=None):
+    def __init__(
+        self,
+        model_name: str,
+        prompt_loader=None,
+        metrics_collector: Optional[MetricsCollector] = None,
+    ):
         self._model_name = model_name
         self._prompt_loader = prompt_loader
+        self._metrics = metrics_collector
 
     def merge(self, user_request: str, agent_results: Dict[str, str]) -> str:
         from ..registry.model_registry import model_registry
@@ -51,13 +59,37 @@ class LLMMerger(ResultMerger):
                 f"{json.dumps(agent_results, ensure_ascii=False)}"
             ))]
 
+        started = time.monotonic()
+        status = "success"
+        if self._metrics is not None:
+            self._metrics.counter(
+                "model.calls",
+                tags={"component": "aggregator", "model": self._model_name},
+            )
         try:
             llm = model_registry.get_model(self._model_name)
             response = llm.invoke(prompt_msgs)
             return str(response.content)
         except Exception as exc:
+            status = "failure"
             logger.error("LLM aggregation failed", extra={"error": str(exc)})
             return "\n\n".join(str(v) for v in agent_results.values())
+        finally:
+            if self._metrics is not None:
+                self._metrics.histogram(
+                    "model.duration_ms",
+                    (time.monotonic() - started) * 1000,
+                    tags={
+                        "component": "aggregator",
+                        "model": self._model_name,
+                        "status": status,
+                    },
+                )
+                if status == "failure":
+                    self._metrics.counter(
+                        "model.errors",
+                        tags={"component": "aggregator", "model": self._model_name},
+                    )
 
 
 class ConcatMerger(ResultMerger):
@@ -85,12 +117,21 @@ class Aggregator:
         model_name: str,
         merger: Optional[ResultMerger] = None,
         prompt_loader=None,
+        metrics_collector: Optional[MetricsCollector] = None,
     ):
-        self._merger = merger or LLMMerger(model_name, prompt_loader)
+        self._metrics = metrics_collector
+        self._merger = merger or LLMMerger(
+            model_name,
+            prompt_loader,
+            metrics_collector=metrics_collector,
+        )
         self._concat = ConcatMerger()
 
     def aggregate(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Merge agent_results into a final response."""
+        started = time.monotonic()
+        if self._metrics is not None:
+            self._metrics.counter("aggregation.requests")
         agent_results: Dict[str, str] = state.get("agent_results", {})
 
         success_results, failed_results = _split_results(agent_results)
@@ -104,22 +145,45 @@ class Aggregator:
         # Single result — return directly
         if len(success_results) == 1:
             answer = next(iter(success_results.values()))
+            self._record_aggregation(started, "single", success_results, failed_results)
             return {"messages": [AIMessage(content=answer)], "aggregation_done": True}
 
         # No success results
         if not success_results:
             answer = _no_results_fallback(state, failed_results)
+            self._record_aggregation(started, "no_success", success_results, failed_results)
             return {"messages": [AIMessage(content=answer)], "aggregation_done": True}
 
         # Multiple results — merge
         user_request = _last_human(state["messages"])
         try:
             answer = self._merger.merge(user_request, success_results)
+            status = "merged"
         except Exception as exc:
             logger.error("Merger failed, falling back to concat", extra={"error": str(exc)})
             answer = self._concat.merge(user_request, success_results)
+            status = "fallback"
 
+        self._record_aggregation(started, status, success_results, failed_results)
         return {"messages": [AIMessage(content=answer)], "aggregation_done": True}
+
+    def _record_aggregation(
+        self,
+        started: float,
+        status: str,
+        success_results: Dict[str, str],
+        failed_results: Dict[str, str],
+    ) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.counter("aggregation.results", tags={"status": status})
+        self._metrics.histogram(
+            "aggregation.duration_ms",
+            (time.monotonic() - started) * 1000,
+            tags={"status": status},
+        )
+        self._metrics.histogram("aggregation.success_count", float(len(success_results)))
+        self._metrics.histogram("aggregation.failed_count", float(len(failed_results)))
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────

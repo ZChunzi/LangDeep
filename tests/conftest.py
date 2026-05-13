@@ -19,7 +19,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.callbacks import CallbackManagerForLLMRun
 
 from langdeep import FlowOrchestrator, ExecutionPolicy, RoutingStrategy
-from langdeep.core.registry.model_registry import model_registry, ModelConfig
+from langdeep.core.registry.model_registry import model_registry, provider_registry, ModelConfig
 from langdeep.core.registry.agent_registry import agent_registry, AgentMetadata
 from langdeep.core.registry.tool_registry import tool_registry
 from langdeep.core.memory.registry import memory_registry
@@ -29,34 +29,17 @@ from langdeep.core.sandbox.registry import sandbox_registry
 from langdeep.core.secrets.manager import secrets_manager
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# Registry cleaning helpers
-# ═══════════════════════════════════════════════════════════════════════
-
-_INTERNAL_REGISTRY_ATTRS = {
-    "agent_registry": ("_agents", "_metadata", "_factories"),
-    "tool_registry": ("_tools", "_metadata"),
-    "model_registry": ("_models", "_instance_cache"),
-    "memory_registry": ("_factories", "_metadata", "_instances"),
-    "cache_registry": ("_factories", "_metadata", "_instances"),
-    "im_channel_registry": ("_channels", "_adapters"),
-    "sandbox_registry": ("_backends", "_metadata", "_factory"),
-    "secrets_manager": ("_providers",),
-}
-
-
 def clean_registries():
     """Reset all singleton registries to pristine state (for test isolation)."""
-    for reg_name, attrs in _INTERNAL_REGISTRY_ATTRS.items():
-        reg = globals()[reg_name]
-        if reg_name == "sandbox_registry":
-            reg.clear()  # clear() re-registers the built-in subprocess backend
-            continue
-        for attr in attrs:
-            try:
-                getattr(reg, attr).clear()
-            except AttributeError:
-                pass
+    agent_registry.reset()
+    tool_registry.reset()
+    model_registry.reset()
+    provider_registry.reset()
+    memory_registry.clear()
+    cache_registry.clear()
+    im_channel_registry.clear()
+    sandbox_registry.clear()  # clear() re-registers the built-in subprocess backend
+    secrets_manager.clear()
 
 
 def populate_minimal_registries():
@@ -67,11 +50,11 @@ def populate_minimal_registries():
     # Register mock model
     if "gpt4o" not in model_registry.list_models():
         model_registry.register("gpt4o", ModelConfig(provider="mock", model_name="gpt4o"))
-        model_registry._instance_cache.set("gpt4o", SmartMockLLM(model_name="gpt4o"))
+        model_registry.set_model_instance("gpt4o", SmartMockLLM(model_name="gpt4o"))
 
     if "deepseek_chat" not in model_registry.list_models():
         model_registry.register("deepseek_chat", ModelConfig(provider="mock", model_name="deepseek-chat"))
-        model_registry._instance_cache.set("deepseek_chat", SmartMockLLM(model_name="deepseek-chat"))
+        model_registry.set_model_instance("deepseek_chat", SmartMockLLM(model_name="deepseek-chat"))
 
     # Register a test tool
     if "test_tool" not in tool_registry.list_tools():
@@ -218,7 +201,7 @@ def orch(**kw) -> FlowOrchestrator:
     for name in [kw.get("supervisor_model", "gpt4o"), "deepseek_chat"]:
         if name not in model_registry.list_models():
             model_registry.register(name, ModelConfig(provider="mock", model_name=name))
-        model_registry._instance_cache.set(name, _mock())
+        model_registry.set_model_instance(name, _mock())
     return o
 
 

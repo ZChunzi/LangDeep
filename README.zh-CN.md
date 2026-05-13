@@ -13,7 +13,7 @@
 
 **语言：** [English](README.md) | 简体中文
 
-**项目状态：Beta - v2.0.0**
+**项目状态：Beta - v2.0.1**
 
 核心 API 已进入第二个大版本，适合企业内部受控试点。关键生产环境仍应先完成模型供应商、密钥、审计、沙箱、持久化和运维策略评审。
 
@@ -64,8 +64,8 @@ pip install -e .
 # 安装可选模型 Provider 依赖
 pip install -e ".[all]"
 
-# 安装持久化相关依赖
-pip install -e ".[persist]"
+# 也可以按 Provider 单独安装：
+# .[anthropic], .[google-genai], .[vertexai], .[ollama]
 
 # 安装测试、覆盖率、Lint、构建工具
 pip install -e ".[dev]"
@@ -611,6 +611,17 @@ python -m build --no-isolation
 完整开发者指南见：
 
 - [docs/developer-guide.md](docs/developer-guide.md)
+
+---
+
+## 📌 v2.0.1 版本说明
+
+v2.0.1 是维护版本，重点新增工具策略基础设施和打包改进。
+
+- 新增 `PolicyAwareTool`、`ToolAuditLog`、`ToolExecutionPolicy`、`ToolExecutionRecord`，提供细粒度的工具治理能力。
+- 新增打包测试 (`test_packaging.py`)，验证构建和导入完整性。
+- 更新文档，补充工具策略使用指南和打包验证步骤。
+- 项目状态更新为 Beta - v2.0.1。
 
 ---
 

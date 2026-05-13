@@ -4,6 +4,7 @@ import importlib
 import inspect
 import os
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence
 
@@ -29,6 +30,7 @@ from .agent_node import make_agent_node
 
 if TYPE_CHECKING:
     from ..process import ProcessManager
+    from ..observability import MetricsCollector
 
 logger = get_logger(__name__)
 
@@ -57,6 +59,8 @@ def _build_state_schema() -> type:
         task_context: Dict[str, Any]
         agent_results: Annotated[Dict[str, Any], lambda x, y: {**x, **y}]
         workflow_plan: Optional[List[Dict[str, Any]]]
+        memory_session_id: Optional[str]
+        memory_start_len: int
         error_count: int
         max_retries: int
         aggregation_done: bool
@@ -121,11 +125,14 @@ class FlowOrchestrator:
         # Process manager (optional, for long-running workflow lifecycle)
         process_manager: Optional["ProcessManager"] = None,
         strict_component_import: bool = False,
+        metrics_collector: Optional["MetricsCollector"] = None,
     ):
         self._supervisor_model = supervisor_model
         self._max_retries = max_retries
         self._llm_timeout = llm_timeout
         self._policy = execution_policy or ExecutionPolicy()
+        from ..observability import MetricsCollector
+        self._metrics = metrics_collector or MetricsCollector()
 
         # Prompt loading
         from ..prompt.prompt_loader import MarkdownPromptLoader
@@ -162,6 +169,9 @@ class FlowOrchestrator:
             strict=strict_component_import,
         )
 
+        from ..registry.tool_registry import tool_registry
+        tool_registry.set_metrics_collector(self._metrics)
+
         # Cached registrations
         self._cached_agents: Optional[List[Dict]] = None
         self._cached_targets: Optional[List[str]] = None
@@ -177,12 +187,14 @@ class FlowOrchestrator:
             model_name=supervisor_model,
             routing_strategy=routing_strategy,
             valid_targets=self._get_valid_targets(),
+            metrics_collector=self._metrics,
         )
 
         self._planner = Planner(
             model_name=supervisor_model,
             plan_generator=plan_generator,
             prompt_loader=self._prompt_loader,
+            metrics_collector=self._metrics,
         )
 
         self._executor = Executor(
@@ -190,12 +202,14 @@ class FlowOrchestrator:
             policy=self._policy,
             max_retries=max_retries,
             timeout=llm_timeout,
+            metrics_collector=self._metrics,
         )
 
         self._aggregator = Aggregator(
             model_name=supervisor_model,
             merger=result_merger,
             prompt_loader=self._prompt_loader,
+            metrics_collector=self._metrics,
         )
 
         # Process manager (optional)
@@ -215,12 +229,18 @@ class FlowOrchestrator:
         """Execute the workflow synchronously and return the final state."""
         initial = self._initial_state(user_input, context, workflow_plan, template_name)
         trace_id = set_trace_context()
+        started = time.monotonic()
+        status = "success"
+        self._metrics.counter("orchestrator.invocations", tags={"mode": "sync"})
         logger.info("Orchestrator invoke start", extra={"input_preview": user_input[:120]})
         try:
             result = self._graph.invoke(initial)
+            result = self._after_execution(result)
             logger.info("Orchestrator invoke complete")
             return result
         except Exception as exc:
+            status = "failure"
+            self._metrics.counter("orchestrator.errors", tags={"mode": "sync"})
             logger.error("Orchestrator invoke failed", extra={"error": str(exc)}, exc_info=True)
             raise OrchestrationError(
                 "Workflow execution failed",
@@ -228,6 +248,7 @@ class FlowOrchestrator:
                 cause=exc,
             ) from exc
         finally:
+            self._record_orchestrator_duration(started, mode="sync", status=status)
             clear_trace_context()
 
     async def ainvoke(
@@ -238,7 +259,35 @@ class FlowOrchestrator:
         template_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute the workflow asynchronously and return the final state."""
-        return self.invoke(user_input, context, workflow_plan, template_name)
+        initial = self._initial_state(user_input, context, workflow_plan, template_name)
+        trace_id = set_trace_context()
+        started = time.monotonic()
+        status = "success"
+        self._metrics.counter("orchestrator.invocations", tags={"mode": "async"})
+        logger.info("Orchestrator ainvoke start", extra={"input_preview": user_input[:120]})
+        try:
+            graph_ainvoke = getattr(self._graph, "ainvoke", None)
+            if callable(graph_ainvoke) and _should_use_native_async(self._graph):
+                result = await graph_ainvoke(initial)
+            elif _is_langgraph_compiled_state_graph(self._graph):
+                result = await self._arun_compiled_graph_equivalent(initial)
+            else:
+                result = self._graph.invoke(initial)
+            result = self._after_execution(result)
+            logger.info("Orchestrator ainvoke complete")
+            return result
+        except Exception as exc:
+            status = "failure"
+            self._metrics.counter("orchestrator.errors", tags={"mode": "async"})
+            logger.error("Orchestrator ainvoke failed", extra={"error": str(exc)}, exc_info=True)
+            raise OrchestrationError(
+                "Workflow execution failed",
+                context={"user_input": user_input[:200], "trace_id": trace_id},
+                cause=exc,
+            ) from exc
+        finally:
+            self._record_orchestrator_duration(started, mode="async", status=status)
+            clear_trace_context()
 
     async def astream(self, user_input: str, context: Optional[Dict] = None, **kwargs):
         """Execute the workflow as a stream, yielding each node's output."""
@@ -248,14 +297,40 @@ class FlowOrchestrator:
             template_name=kwargs.pop("template_name", None),
         )
         set_trace_context()
+        started = time.monotonic()
+        status = "success"
+        chunk_count = 0
+        self._metrics.counter("orchestrator.streams", tags={"mode": "async"})
         logger.info("Orchestrator astream start", extra={"input_preview": user_input[:120]})
         try:
+            graph_astream = getattr(self._graph, "astream", None)
+            if callable(graph_astream) and _should_use_native_async(self._graph):
+                async for chunk in graph_astream(initial, **kwargs):
+                    chunk_count += 1
+                    yield chunk
+                return
+
+            if _is_langgraph_compiled_state_graph(self._graph):
+                async for chunk in self._astream_compiled_graph_equivalent(initial):
+                    chunk_count += 1
+                    yield chunk
+                return
+
             for chunk in self._graph.stream(initial, **kwargs):
+                chunk_count += 1
                 yield chunk
         except Exception as exc:
+            status = "failure"
+            self._metrics.counter("orchestrator.errors", tags={"mode": "stream"})
             logger.error("Orchestrator astream failed", extra={"error": str(exc)}, exc_info=True)
             raise
         finally:
+            self._metrics.histogram(
+                "orchestrator.stream_chunks",
+                float(chunk_count),
+                tags={"status": status},
+            )
+            self._record_orchestrator_duration(started, mode="stream", status=status)
             clear_trace_context()
 
     def health(self) -> Dict[str, Any]:
@@ -271,9 +346,18 @@ class FlowOrchestrator:
 
     def get_metrics(self) -> Dict[str, Any]:
         """Return in-process metrics from the built-in collector."""
-        from ..observability import MetricsCollector
-        collector = MetricsCollector()
-        return collector.get_metrics()
+        return self._metrics.get_metrics()
+
+    def clear_metrics(self) -> None:
+        """Clear in-process metrics for this orchestrator."""
+        self._metrics.clear()
+
+    def _record_orchestrator_duration(self, started: float, *, mode: str, status: str) -> None:
+        self._metrics.histogram(
+            "orchestrator.duration_ms",
+            (time.monotonic() - started) * 1000,
+            tags={"mode": mode, "status": status},
+        )
 
     @property
     def graph(self):
@@ -338,26 +422,134 @@ class FlowOrchestrator:
     # ── Node: Supervisor ──────────────────────────────────────────────────────
 
     def _supervisor_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        return self._run_core_node(self.NODE_SUPERVISOR, self._run_supervisor_node, state)
+
+    def _run_supervisor_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         agents = self._get_available_agents()
         # Keep valid targets up-to-date
         self._router.set_valid_targets(self._get_valid_targets())
-        result = self._router.route(state, agents)
-        return result
+        return self._router.route(state, agents)
 
     # ── Node: Planner ─────────────────────────────────────────────────────────
 
     def _planner_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        return self._planner.plan(state)
+        return self._run_core_node(self.NODE_PLANNER, self._planner.plan, state)
 
     # ── Node: Executor ────────────────────────────────────────────────────────
 
     def _executor_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        return self._executor.execute(state)
+        return self._run_core_node(self.NODE_EXECUTOR, self._executor.execute, state)
 
     # ── Node: Aggregator ──────────────────────────────────────────────────────
 
     def _aggregator_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        return self._aggregator.aggregate(state)
+        return self._run_core_node(self.NODE_AGGREGATOR, self._aggregator.aggregate, state)
+
+    def _run_core_node(self, node_name: str, node_fn: Callable, state: Dict[str, Any]) -> Dict[str, Any]:
+        started = time.monotonic()
+        status = "success"
+        self._metrics.counter("orchestrator.node.calls", tags={"node": node_name})
+        try:
+            return node_fn(state)
+        except Exception:
+            status = "failure"
+            self._metrics.counter("orchestrator.node.errors", tags={"node": node_name})
+            raise
+        finally:
+            self._metrics.histogram(
+                "orchestrator.node.duration_ms",
+                (time.monotonic() - started) * 1000,
+                tags={"node": node_name, "status": status},
+            )
+
+    # ── Async graph equivalent ────────────────────────────────────────────────
+
+    async def _arun_compiled_graph_equivalent(self, initial: Dict[str, Any]) -> Dict[str, Any]:
+        """Run the orchestrator path asynchronously without LangGraph's async runner."""
+        state = dict(initial)
+        state, _ = await self._arun_node_update(self.NODE_SUPERVISOR, self._supervisor_node, state)
+        next_node = self._route_from_supervisor(state)
+
+        if next_node == "end":
+            return state
+
+        if next_node == self.NODE_PLANNER:
+            for node_name, node_fn in (
+                (self.NODE_PLANNER, self._planner_node),
+                (self.NODE_EXECUTOR, self._executor_node),
+                (self.NODE_AGGREGATOR, self._aggregator_node),
+            ):
+                state, _ = await self._arun_node_update(node_name, node_fn, state)
+            return state
+
+        node_fn = self._agent_nodes.get(next_node) or self._custom_nodes.get(next_node)
+        if node_fn is None:
+            return state
+
+        state, _ = await self._arun_node_update(next_node, node_fn, state)
+        state, _ = await self._arun_node_update(
+            self.NODE_AGGREGATOR,
+            self._aggregator_node,
+            state,
+        )
+        return state
+
+    async def _astream_compiled_graph_equivalent(self, initial: Dict[str, Any]):
+        """Yield node updates asynchronously without LangGraph's async runner."""
+        state = dict(initial)
+        state, update = await self._arun_node_update(
+            self.NODE_SUPERVISOR,
+            self._supervisor_node,
+            state,
+        )
+        yield {self.NODE_SUPERVISOR: update}
+
+        next_node = self._route_from_supervisor(state)
+        if next_node == "end":
+            self._after_execution(state)
+            return
+
+        if next_node == self.NODE_PLANNER:
+            for node_name, node_fn in (
+                (self.NODE_PLANNER, self._planner_node),
+                (self.NODE_EXECUTOR, self._executor_node),
+                (self.NODE_AGGREGATOR, self._aggregator_node),
+            ):
+                state, update = await self._arun_node_update(node_name, node_fn, state)
+                yield {node_name: update}
+            self._after_execution(state)
+            return
+
+        node_fn = self._agent_nodes.get(next_node) or self._custom_nodes.get(next_node)
+        if node_fn is None:
+            self._after_execution(state)
+            return
+
+        state, update = await self._arun_node_update(next_node, node_fn, state)
+        yield {next_node: update}
+        state, update = await self._arun_node_update(
+            self.NODE_AGGREGATOR,
+            self._aggregator_node,
+            state,
+        )
+        yield {self.NODE_AGGREGATOR: update}
+        self._after_execution(state)
+
+    async def _arun_node_update(
+        self,
+        node_name: str,
+        node_fn: Callable,
+        state: Dict[str, Any],
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        update = await _call_node_async(node_fn, state)
+        if update is None:
+            update = {}
+        if not isinstance(update, dict):
+            raise OrchestrationError(
+                "Graph node returned a non-dict update",
+                context={"node": node_name, "type": type(update).__name__},
+            )
+        return _merge_state_update(state, update), update
 
     # ── Routing ───────────────────────────────────────────────────────────────
 
@@ -384,17 +576,94 @@ class FlowOrchestrator:
         elif workflow_plan:
             plan = workflow_plan
 
+        task_context = dict(context or {})
+        session_id = _context_value(task_context, "session_id")
+        memory_messages = self._load_memory_messages(session_id)
+        messages = list(memory_messages) + [HumanMessage(content=user_input)]
+
         return {
-            "messages": [HumanMessage(content=user_input)],
+            "messages": messages,
             "next": "",
             "current_task": "",
-            "task_context": context or {},
+            "task_context": task_context,
             "agent_results": {},
             "workflow_plan": plan,
+            "memory_session_id": session_id,
+            "memory_start_len": len(memory_messages),
             "error_count": 0,
             "max_retries": self._max_retries,
             "aggregation_done": False,
         }
+
+    def _load_memory_messages(self, session_id: Optional[str]) -> List[BaseMessage]:
+        if not self._memory_backend or not session_id:
+            return []
+        try:
+            messages = self._memory_backend.load_messages(session_id)
+            logger.debug(
+                "Memory messages loaded",
+                extra={"session_id": session_id, "message_count": len(messages)},
+            )
+            return list(messages)
+        except Exception as exc:
+            logger.warning(
+                "Failed to load memory messages",
+                extra={"session_id": session_id, "error": str(exc)},
+            )
+            return []
+
+    def _after_execution(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        self._store_memory_messages(state)
+        self._sync_process_state(state)
+        return state
+
+    def _store_memory_messages(self, state: Dict[str, Any]) -> None:
+        if not self._memory_backend:
+            return
+        session_id = state.get("memory_session_id") or _context_value(
+            state.get("task_context", {}),
+            "session_id",
+        )
+        if not session_id:
+            return
+        messages = list(state.get("messages") or [])
+        start = int(state.get("memory_start_len") or 0)
+        new_messages = messages[start:]
+        if not new_messages:
+            return
+        try:
+            self._memory_backend.store_messages(session_id, new_messages)
+            logger.debug(
+                "Memory messages stored",
+                extra={"session_id": session_id, "message_count": len(new_messages)},
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to store memory messages",
+                extra={"session_id": session_id, "error": str(exc)},
+            )
+
+    def _sync_process_state(self, state: Dict[str, Any]) -> None:
+        if self._process_manager is None:
+            return
+        task_context = state.get("task_context") or {}
+        process_id = _context_value(task_context, "process_id")
+        if not process_id:
+            return
+
+        snapshot = _build_process_snapshot(state)
+        try:
+            if _has_waiting_confirmation(state):
+                process = self._process_manager.await_human(process_id, snapshot=snapshot)
+            else:
+                process = self._process_manager.update_snapshot(process_id, snapshot=snapshot)
+            if process is None:
+                logger.warning("Process not found", extra={"process_id": process_id})
+        except Exception as exc:
+            logger.warning(
+                "Failed to sync process state",
+                extra={"process_id": process_id, "error": str(exc)},
+            )
 
     # ── Auto-import ───────────────────────────────────────────────────────────
 
@@ -454,3 +723,69 @@ class FlowOrchestrator:
             custom = list(self._custom_nodes.keys())
             self._cached_targets = ["planner", "end"] + agents + custom
         return self._cached_targets
+
+
+def _is_langgraph_compiled_state_graph(graph: Any) -> bool:
+    graph_type = type(graph)
+    return (
+        graph_type.__module__ == "langgraph.graph.state"
+        and graph_type.__name__ == "CompiledStateGraph"
+    )
+
+
+def _should_use_native_async(graph: Any) -> bool:
+    """Use custom async graph APIs, but avoid LangGraph sync-node async hangs."""
+    return not _is_langgraph_compiled_state_graph(graph)
+
+
+async def _call_node_async(node_fn: Callable, state: Dict[str, Any]) -> Dict[str, Any]:
+    result = node_fn(state)
+    if inspect.isawaitable(result):
+        result = await result
+    return result
+
+
+def _merge_state_update(state: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(state)
+    for key, value in update.items():
+        if key == "messages":
+            existing = list(merged.get("messages") or [])
+            incoming = list(value or [])
+            merged[key] = existing + incoming
+        elif key == "agent_results":
+            merged[key] = {**(merged.get("agent_results") or {}), **(value or {})}
+        else:
+            merged[key] = value
+    return merged
+
+
+def _context_value(context: Dict[str, Any], key: str) -> Optional[str]:
+    value = context.get(key) if isinstance(context, dict) else None
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _has_waiting_confirmation(state: Dict[str, Any]) -> bool:
+    return any(
+        isinstance(task, dict) and task.get("status") == "waiting_confirmation"
+        for task in (state.get("workflow_plan") or [])
+    )
+
+
+def _build_process_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "messages": [_message_snapshot(message) for message in state.get("messages", [])],
+        "task_context": dict(state.get("task_context") or {}),
+        "agent_results": dict(state.get("agent_results") or {}),
+        "workflow_plan": list(state.get("workflow_plan") or []),
+        "aggregation_done": bool(state.get("aggregation_done", False)),
+    }
+
+
+def _message_snapshot(message: BaseMessage) -> Dict[str, str]:
+    return {
+        "type": getattr(message, "type", type(message).__name__),
+        "content": str(getattr(message, "content", "")),
+    }

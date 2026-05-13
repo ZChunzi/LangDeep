@@ -66,6 +66,7 @@ from .secrets import (
 )
 from .observability import HealthStatus, HealthChecker, MetricsCollector
 from .diagnostics import DiagnosticIssue, RuntimeDiagnostics, RuntimeValidator, validate_runtime
+from .tools import PolicyAwareTool, ToolAuditLog, ToolExecutionPolicy, ToolExecutionRecord
 
 __all__ = [
     "ExecutionPolicy",
@@ -134,4 +135,9 @@ __all__ = [
     "RuntimeDiagnostics",
     "RuntimeValidator",
     "validate_runtime",
+    # Tools
+    "PolicyAwareTool",
+    "ToolAuditLog",
+    "ToolExecutionPolicy",
+    "ToolExecutionRecord",
 ]

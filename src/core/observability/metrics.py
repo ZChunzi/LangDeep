@@ -2,7 +2,7 @@
 
 import threading
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ..logging import get_logger
 
@@ -31,18 +31,21 @@ class MetricsCollector:
         self._gauges: Dict[str, float] = {}
         self._lock = threading.Lock()
 
-    def counter(self, name: str, value: float = 1) -> None:
+    def counter(self, name: str, value: float = 1, tags: Optional[Dict[str, Any]] = None) -> None:
         """Increment a counter by *value* (default 1)."""
+        name = _metric_name(name, tags)
         with self._lock:
             self._counters[name] += value
 
-    def histogram(self, name: str, value: float) -> None:
+    def histogram(self, name: str, value: float, tags: Optional[Dict[str, Any]] = None) -> None:
         """Record a value for percentile calculation."""
+        name = _metric_name(name, tags)
         with self._lock:
             self._histograms[name].append(value)
 
-    def gauge(self, name: str, value: float) -> None:
+    def gauge(self, name: str, value: float, tags: Optional[Dict[str, Any]] = None) -> None:
         """Set a gauge to *value*."""
+        name = _metric_name(name, tags)
         with self._lock:
             self._gauges[name] = value
 
@@ -91,3 +94,17 @@ class MetricsCollector:
             "p90": sorted_vals[int((n - 1) * 0.90)],
             "p99": sorted_vals[int((n - 1) * 0.99)],
         }
+
+
+def _metric_name(name: str, tags: Optional[Dict[str, Any]] = None) -> str:
+    if not tags:
+        return name
+    normalized = {
+        key: str(value).replace(",", "_").replace("|", "_")
+        for key, value in tags.items()
+        if value is not None
+    }
+    if not normalized:
+        return name
+    tag_text = ",".join(f"{key}={normalized[key]}" for key in sorted(normalized))
+    return f"{name}|{tag_text}"

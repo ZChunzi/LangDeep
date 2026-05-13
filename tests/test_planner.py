@@ -9,6 +9,7 @@ import tempfile
 
 from langchain_core.messages import AIMessage, HumanMessage
 
+from langdeep.core.observability import MetricsCollector
 from langdeep.core.orchestrator.planner import (
     Planner, LLMPlanGenerator, FallbackPlanGenerator,
     TemplateLoader, parse_plan_content, update_plan_status,
@@ -23,7 +24,7 @@ from conftest import clean_registries, SmartMockLLM
 def setup_function():
     clean_registries()
     model_registry.register("planner_model", ModelConfig(provider="mock", model_name="planner"))
-    model_registry._instances["planner_model"] = SmartMockLLM(model_name="planner")
+    model_registry.set_model_instance("planner_model", SmartMockLLM(model_name="planner"))
     agent_registry.register("test_agent", lambda: object(), AgentMetadata(
         name="test_agent", description="test", capabilities=[], routing_keywords=[], model_name="gpt4o",
     ))
@@ -47,6 +48,21 @@ def test_llm_plan_generator():
     gen = LLMPlanGenerator(model_name="planner_model")
     plan = gen.generate("do research", ["test_agent"])
     assert isinstance(plan, list)
+
+
+def test_llm_plan_generator_records_model_metrics():
+    metrics = MetricsCollector()
+    gen = LLMPlanGenerator(model_name="planner_model", metrics_collector=metrics)
+
+    plan = gen.generate("do research", ["test_agent"])
+
+    assert isinstance(plan, list)
+    collected = metrics.get_metrics()
+    assert collected["counters"]["model.calls|component=planner,model=planner_model"] == 1
+    assert (
+        "model.duration_ms|component=planner,model=planner_model,status=success"
+        in collected["histograms"]
+    )
 
 
 def test_planner_creates_plan():

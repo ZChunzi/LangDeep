@@ -9,8 +9,11 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from langdeep import FlowOrchestrator, ExecutionPolicy, RoutingStrategy
 from langdeep.core.registry.agent_registry import agent_registry, AgentMetadata
+from langdeep.core.memory import InMemoryBackend, memory_registry
+from langdeep.core.observability import MetricsCollector
+from langdeep.core.process import ProcessManager, ProcessState
 
-from conftest import clean_registries, populate_minimal_registries, _mock, orch, _last_ai
+from conftest import clean_registries, populate_minimal_registries, _mock, orch, _last_ai, ToPlanner
 
 
 def setup_function():
@@ -44,6 +47,120 @@ def test_invoke_with_context():
     assert result is not None
 
 
+def test_invoke_records_shared_metrics():
+    metrics = MetricsCollector()
+    o = orch(
+        routing_strategy=ToPlanner(),
+        execution_policy=ExecutionPolicy(strategy="sequential"),
+        metrics_collector=metrics,
+    )
+    plan = [{
+        "id": "task_1",
+        "agent": "test_echo",
+        "depends_on": [],
+        "status": "pending",
+    }]
+
+    o.invoke("collect metrics", workflow_plan=plan)
+
+    collected = o.get_metrics()
+    counters = collected["counters"]
+    assert counters["orchestrator.invocations|mode=sync"] == 1
+    assert counters["orchestrator.node.calls|node=supervisor"] == 1
+    assert counters["routing.fast_path_hits|next=planner"] == 1
+    assert counters["planning.reused"] == 1
+    assert counters["execution.task_results|status=success"] == 1
+    assert counters["aggregation.results|status=single"] == 1
+    assert "orchestrator.duration_ms|mode=sync,status=success" in collected["histograms"]
+
+    o.clear_metrics()
+    assert o.get_metrics()["counters"] == {}
+
+
+def test_invoke_loads_and_stores_memory_by_session_id():
+    backend = InMemoryBackend()
+    memory_registry.register("session_mem", lambda: backend)
+
+    def create_memory_agent():
+        class MemoryAgent:
+            def invoke(self, state):
+                human_count = sum(
+                    1 for message in state.get("messages", [])
+                    if isinstance(message, HumanMessage)
+                )
+                return {"messages": [AIMessage(content=f"humans={human_count}")]}
+
+            async def ainvoke(self, state):
+                return self.invoke(state)
+
+        return MemoryAgent()
+
+    agent_registry.register(
+        "memory_agent",
+        create_memory_agent,
+        AgentMetadata(
+            name="memory_agent",
+            description="Counts human messages in session memory",
+            routing_keywords=["remember"],
+            model_name="gpt4o",
+        ),
+    )
+
+    o = orch(memory="session_mem")
+
+    first = o.invoke("remember first", context={"session_id": "s1"})
+    assert _last_ai(first["messages"]) == "humans=1"
+
+    second = o.invoke("remember second", context={"session_id": "s1"})
+    assert _last_ai(second["messages"]) == "humans=2"
+
+    stored = backend.load_messages("s1")
+    stored_human = [message.content for message in stored if isinstance(message, HumanMessage)]
+    assert stored_human == ["remember first", "remember second"]
+    assert any(message.content == "humans=2" for message in stored if isinstance(message, AIMessage))
+
+
+def test_invoke_updates_process_snapshot_by_process_id():
+    process_manager = ProcessManager()
+    process = process_manager.create("chat")
+    o = orch(process_manager=process_manager)
+
+    result = o.invoke("你好", context={"process_id": process.pid})
+
+    stored = process_manager.get_process(process.pid)
+    assert stored is not None
+    assert stored.state == ProcessState.ACTIVE
+    assert stored.snapshot["task_context"]["process_id"] == process.pid
+    assert stored.snapshot["agent_results"] == result["agent_results"]
+
+
+def test_waiting_confirmation_sets_process_awaiting_human():
+    process_manager = ProcessManager()
+    process = process_manager.create("approval")
+    o = orch(routing_strategy=ToPlanner(), process_manager=process_manager)
+    plan = [
+        {
+            "id": "needs_approval",
+            "agent": "test_echo",
+            "depends_on": [],
+            "status": "pending",
+            "requires_confirmation": True,
+        }
+    ]
+
+    result = o.invoke(
+        "needs approval",
+        context={"process_id": process.pid},
+        workflow_plan=plan,
+    )
+
+    stored = process_manager.get_process(process.pid)
+    assert result["workflow_plan"][0]["status"] == "waiting_confirmation"
+    assert stored is not None
+    assert stored.state == ProcessState.AWAITING_HUMAN
+    assert stored.snapshot["workflow_plan"][0]["status"] == "waiting_confirmation"
+
+
 def test_invoke_with_workflow_plan():
     o = orch()
     plan = [
@@ -64,6 +181,32 @@ def test_ainvoke():
     assert r is not None
 
 
+def test_ainvoke_prefers_graph_async_api():
+    """ainvoke should use the graph's async entrypoint when it exists."""
+
+    class AsyncGraph:
+        def __init__(self):
+            self.initial = None
+
+        def invoke(self, initial):
+            raise AssertionError("sync invoke should not be called")
+
+        async def ainvoke(self, initial):
+            self.initial = initial
+            return {"messages": [AIMessage(content="async result")]}
+
+    o = orch()
+    graph = AsyncGraph()
+    o._graph = graph  # type: ignore
+
+    async def run():
+        return await o.ainvoke("async boundary")
+
+    result = asyncio.run(run())
+    assert _last_ai(result["messages"]) == "async result"
+    assert graph.initial["messages"][0].content == "async boundary"
+
+
 def test_astream():
     o = orch()
     async def run():
@@ -73,6 +216,31 @@ def test_astream():
                 nodes.add(node_name)
         assert len(nodes) >= 1
     asyncio.run(run())
+
+
+def test_astream_prefers_graph_async_stream_api():
+    """astream should consume the graph's async stream when it exists."""
+
+    class AsyncStreamGraph:
+        def stream(self, initial, **kwargs):
+            raise AssertionError("sync stream should not be called")
+
+        async def astream(self, initial, **kwargs):
+            yield {"first": {"messages": [AIMessage(content=initial["messages"][0].content)]}}
+            yield {"second": {"messages": [AIMessage(content=str(kwargs.get("mode")))]}}
+
+    o = orch()
+    o._graph = AsyncStreamGraph()  # type: ignore
+
+    async def run():
+        chunks = []
+        async for chunk in o.astream("stream boundary", mode="values"):
+            chunks.append(chunk)
+        return chunks
+
+    chunks = asyncio.run(run())
+    assert chunks[0]["first"]["messages"][0].content == "stream boundary"
+    assert chunks[1]["second"]["messages"][0].content == "values"
 
 
 def test_orchestrator_custom_nodes():

@@ -20,7 +20,7 @@ from conftest import clean_registries
 
 def setup_function():
     clean_registries()
-    provider_registry._register_builtin_providers()
+    provider_registry.reset()
 
 
 def _register_valid_tool():

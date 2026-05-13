@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from langdeep.core.registry.agent_registry import agent_registry, AgentRegistry, AgentMetadata
 from langdeep.core.registry.tool_registry import tool_registry, ToolMetadata
 from langdeep.core.agent_builder import BaseAgentBuilder, agent_builder_registry
-from langdeep.core.errors import AgentBuildError, AgentNotFoundError
+from langdeep.core.errors import AgentBuildError, AgentNotFoundError, ConfigurationError
 from langchain_core.tools import tool as lc_tool
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -143,3 +143,38 @@ def test_audit_tools_missing():
     assert len(issues) == 1
     assert "bad_agent" in issues[0]
     assert "ghost_tool" in issues[0]
+
+
+def test_registry_lifecycle_snapshot_reset_and_duplicate_policy():
+    meta = AgentMetadata(name="life_agent", description="life")
+    agent_registry.register("life_agent", lambda: object(), meta)
+
+    snapshot = agent_registry.snapshot()
+    assert snapshot["namespace"] == "default"
+    assert "life_agent" in snapshot["metadata"]
+    assert "life_agent" in snapshot["factories"]
+
+    try:
+        agent_registry.register("life_agent", lambda: object(), meta, replace=False)
+        assert False, "Should reject duplicate registration when replace=False"
+    except ConfigurationError:
+        pass
+
+    agent_registry.reset()
+    assert agent_registry.list_agents() == []
+
+
+def test_registry_namespace_isolation():
+    tenant = AgentRegistry.for_namespace("tenant-a")
+    tenant.reset()
+    tenant.register(
+        "tenant_agent",
+        lambda: object(),
+        AgentMetadata(name="tenant_agent", description="tenant"),
+    )
+
+    assert tenant.namespace == "tenant-a"
+    assert AgentRegistry("tenant-a") is tenant
+    assert "tenant_agent" in tenant.list_agents()
+    assert "tenant_agent" not in agent_registry.list_agents()
+    tenant.reset()

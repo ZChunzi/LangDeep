@@ -13,7 +13,7 @@
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
-**Project Status: Beta - v2.0.0**
+**Project Status: Beta - v2.0.1**
 
 The core API has entered its second major version and is suitable for controlled internal enterprise pilots. Critical production deployments should still complete provider, secret, audit, sandbox, persistence, and operations reviews before release.
 
@@ -64,8 +64,8 @@ pip install -e .
 # Optional model provider dependencies
 pip install -e ".[all]"
 
-# Persistence-related dependencies
-pip install -e ".[persist]"
+# Individual provider dependency groups are also available:
+# .[anthropic], .[google-genai], .[vertexai], .[ollama]
 
 # Test, coverage, lint, and build tooling
 pip install -e ".[dev]"
@@ -615,6 +615,17 @@ Full developer guide:
 Other languages:
 
 - [简体中文](README.zh-CN.md)
+
+---
+
+## 📌 v2.0.1 Release Notes
+
+v2.0.1 is a maintenance release focused on new tool policy infrastructure and improved packaging.
+
+- Added `PolicyAwareTool`, `ToolAuditLog`, `ToolExecutionPolicy`, and `ToolExecutionRecord` for fine-grained tool governance.
+- Added packaging tests (`test_packaging.py`) to verify build and import integrity.
+- Updated documentation with tool policy usage guides and packaging verification steps.
+- Updated project status to Beta - v2.0.1.
 
 ---
 

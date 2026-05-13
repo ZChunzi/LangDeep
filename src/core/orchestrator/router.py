@@ -1,6 +1,7 @@
 """Supervisor routing — keyword fast-path and LLM fallback."""
 
 import re
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -9,6 +10,7 @@ from langchain_core.tools import tool as lc_tool
 
 from ..logging import get_logger
 from ..errors import RoutingError
+from ..observability.metrics import MetricsCollector
 from ..registry.agent_registry import agent_registry
 
 logger = get_logger(__name__)
@@ -87,11 +89,13 @@ class DefaultRouter:
         model_name: str,
         routing_strategy: Optional[RoutingStrategy] = None,
         valid_targets: Optional[List[str]] = None,
+        metrics_collector: Optional[MetricsCollector] = None,
     ):
         self._model_name = model_name
         self._strategy = routing_strategy or KeywordRoutingStrategy()
         self._valid_targets = valid_targets or []
         self._routing_tool = self._build_tool()
+        self._metrics = metrics_collector
 
     def set_valid_targets(self, targets: List[str]) -> None:
         self._valid_targets = targets
@@ -112,16 +116,22 @@ class DefaultRouter:
         """Execute routing and return a state update dict with ``next`` key."""
         from ..registry.model_registry import model_registry
 
+        started = time.monotonic()
+        if self._metrics is not None:
+            self._metrics.counter("routing.requests")
         last_human = _last_human_input(state["messages"])
 
         # 1. Fast keyword path
         fast = self._strategy.route(last_human, available_agents)
         if fast:
             logger.info("Fast-route result", extra={"next_node": fast})
+            self._record_route(started, path="fast", next_node=fast, status="success")
             return {"messages": [], "next": fast}
 
         # 2. LLM fallback
-        return self._llm_route(last_human, available_agents, model_registry)
+        result = self._llm_route(last_human, available_agents, model_registry)
+        self._record_route(started, path="llm", next_node=result.get("next", "end"), status="success")
+        return result
 
     def _llm_route(
         self,
@@ -144,17 +154,54 @@ class DefaultRouter:
         llm = model_registry.get_model(self._model_name)
         llm_with_tools = llm.bind_tools([self._routing_tool])
 
+        model_started = time.monotonic()
+        model_status = "success"
+        if self._metrics is not None:
+            self._metrics.counter(
+                "model.calls",
+                tags={"component": "router", "model": self._model_name},
+            )
         try:
             response = llm_with_tools.invoke(
                 [system_msg, HumanMessage(content=user_input)]
             )
             next_node = _parse_tool_call(response, self._valid_targets)
         except Exception as exc:
+            model_status = "failure"
             logger.error("LLM routing call failed", extra={"error": str(exc)})
             next_node = "end"
+        finally:
+            if self._metrics is not None:
+                self._metrics.histogram(
+                    "model.duration_ms",
+                    (time.monotonic() - model_started) * 1000,
+                    tags={
+                        "component": "router",
+                        "model": self._model_name,
+                        "status": model_status,
+                    },
+                )
+                if model_status == "failure":
+                    self._metrics.counter(
+                        "model.errors",
+                        tags={"component": "router", "model": self._model_name},
+                    )
 
         logger.info("LLM routing result", extra={"next_node": next_node})
         return {"messages": [], "next": next_node}
+
+    def _record_route(self, started: float, *, path: str, next_node: str, status: str) -> None:
+        if self._metrics is None:
+            return
+        tags = {"path": path, "next": next_node, "status": status}
+        self._metrics.counter("routing.decisions", tags=tags)
+        self._metrics.histogram(
+            "routing.duration_ms",
+            (time.monotonic() - started) * 1000,
+            tags=tags,
+        )
+        if path == "fast":
+            self._metrics.counter("routing.fast_path_hits", tags={"next": next_node})
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────

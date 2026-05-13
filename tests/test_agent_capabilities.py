@@ -406,7 +406,7 @@ def orch(**kw) -> FlowOrchestrator:
         for name in [kw.get("supervisor_model", "gpt4o"), "deepseek_chat"]:
             if name not in model_registry.list_models():
                 model_registry.register(name, ModelConfig(provider="mock", model_name=name))
-            model_registry._instance_cache.set(name, _mock())
+            model_registry.set_model_instance(name, _mock())
     return o
 
 

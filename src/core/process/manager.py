@@ -102,6 +102,41 @@ class ProcessManager:
         logger.info("Process terminated", extra={"pid": pid})
         return proc
 
+    def await_human(self, pid: str, snapshot: Optional[Dict[str, Any]] = None) -> Optional[Process]:
+        """Mark a process as awaiting human input.
+
+        This is used by workflow runtimes when task execution reaches a
+        confirmation gate. Returns None if the process does not exist or is
+        already terminated.
+        """
+        proc = self._get(pid)
+        if proc is None or proc.state == ProcessState.TERMINATED:
+            return None
+        proc.state = ProcessState.AWAITING_HUMAN
+        if snapshot is not None:
+            proc.snapshot = snapshot
+        with self._lock:
+            self._persist(proc)
+        logger.info("Process awaiting human input", extra={"pid": pid})
+        return proc
+
+    def update_snapshot(self, pid: str, snapshot: Dict[str, Any]) -> Optional[Process]:
+        """Update a process snapshot without changing its lifecycle state.
+
+        Returns None if the process does not exist. Terminated processes are
+        returned unchanged.
+        """
+        proc = self._get(pid)
+        if proc is None:
+            return None
+        if proc.state == ProcessState.TERMINATED:
+            return proc
+        proc.snapshot = snapshot
+        with self._lock:
+            self._persist(proc)
+        logger.debug("Process snapshot updated", extra={"pid": pid})
+        return proc
+
     # ── Signals ────────────────────────────────────────────────────────
 
     def send_signal(self, pid: str, signal: ProcessSignal) -> Optional[Process]:

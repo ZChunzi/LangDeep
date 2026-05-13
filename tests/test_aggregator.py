@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langdeep.core.orchestrator.aggregator import (
     Aggregator, LLMMerger, ConcatMerger, ResultMerger, _split_results, _no_results_fallback,
 )
+from langdeep.core.observability import MetricsCollector
 from langdeep.core.registry.model_registry import model_registry, ModelConfig
 
 from conftest import clean_registries, SmartMockLLM
@@ -17,7 +18,7 @@ from conftest import clean_registries, SmartMockLLM
 def setup_function():
     clean_registries()
     model_registry.register("test_model", ModelConfig(provider="mock", model_name="test"))
-    model_registry._instances["test_model"] = SmartMockLLM(model_name="test")
+    model_registry.set_model_instance("test_model", SmartMockLLM(model_name="test"))
 
 
 def test_concat_merger():
@@ -39,6 +40,21 @@ def test_llm_merger():
     result = merger.merge("user request", {"a": "data from a"})
     assert result is not None
     assert len(result) > 0
+
+
+def test_llm_merger_records_model_metrics():
+    metrics = MetricsCollector()
+    merger = LLMMerger(model_name="test_model", metrics_collector=metrics)
+
+    result = merger.merge("user request", {"a": "data from a"})
+
+    assert result is not None
+    collected = metrics.get_metrics()
+    assert collected["counters"]["model.calls|component=aggregator,model=test_model"] == 1
+    assert (
+        "model.duration_ms|component=aggregator,model=test_model,status=success"
+        in collected["histograms"]
+    )
 
 
 def test_aggregate_single_result_returns_directly():

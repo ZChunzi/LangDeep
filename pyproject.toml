@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langdeep"
-version = "2.0.0"
+version = "2.0.1"
 description = "LangChain + LangGraph Agent Workflow Framework"
 readme = "README.md"
 license = "MIT"
@@ -32,13 +32,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+openai = ["langchain-openai>=0.2.0"]
+azure-openai = ["langchain-openai>=0.2.0"]
+deepseek = ["langchain-openai>=0.2.0"]
+anthropic = ["langchain-anthropic"]
+google-genai = ["langchain-google-genai"]
+vertexai = ["langchain-google-vertexai"]
+ollama = ["langchain-ollama"]
 all = [
     "langchain-anthropic",
     "langchain-google-genai",
+    "langchain-google-vertexai",
     "langchain-ollama",
     "langchain-tavily",
 ]
-persist = ["SQLAlchemy>=2.0"]
 dev = [
     "build>=1.2.0",
     "pytest>=8.0",
@@ -57,6 +64,7 @@ packages = [
     "langdeep.core",
     "langdeep.core.decorators",
     "langdeep.core.registry",
+    "langdeep.core.tools",
     "langdeep.core.agent_builder",
     "langdeep.core.orchestrator",
     "langdeep.core.planner",

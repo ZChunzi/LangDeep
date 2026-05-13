@@ -128,6 +128,19 @@ def test_metrics_counter():
     assert metrics["counters"]["errors"] == 3
 
 
+def test_metrics_tagged_names_are_deterministic():
+    """Tagged metrics are normalized into deterministic metric keys."""
+    mc = MetricsCollector()
+    mc.counter("requests", tags={"status": "ok", "endpoint": "/chat"})
+    mc.histogram("latency", 12, tags={"status": "ok"})
+    mc.gauge("active", 1, tags={"worker": "a|b"})
+
+    metrics = mc.get_metrics()
+    assert metrics["counters"]["requests|endpoint=/chat,status=ok"] == 1
+    assert metrics["histograms"]["latency|status=ok"]["count"] == 1
+    assert metrics["gauges"]["active|worker=a_b"] == 1
+
+
 def test_metrics_gauge():
     """Gauge sets and overwrites value."""
     mc = MetricsCollector()

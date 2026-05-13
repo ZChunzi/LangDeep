@@ -127,6 +127,26 @@ class ToolNotFoundError(ToolError):
     code = "TOOL_NOT_FOUND"
 
 
+class ToolPolicyError(ToolError):
+    """Tool execution was blocked by a policy check."""
+    code = "TOOL_POLICY_ERROR"
+
+
+class ToolConfirmationRequired(ToolPolicyError):
+    """Tool execution requires explicit confirmation."""
+    code = "TOOL_CONFIRMATION_REQUIRED"
+
+
+class ToolWorkspaceError(ToolPolicyError):
+    """Tool attempted to access a path outside allowed workspaces."""
+    code = "TOOL_WORKSPACE_ERROR"
+
+
+class ToolTimeoutError(ToolPolicyError):
+    """Tool execution exceeded its configured timeout."""
+    code = "TOOL_TIMEOUT"
+
+
 # ── Execution errors ─────────────────────────────────────────────────────────────
 
 class ExecutionError(LangDeepError):

@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from ..logging import get_logger, get_trace_id
 from ..errors import TaskExecutionError, CircularDependencyError
 from ..execution.execution_policy import ExecutionPolicy
+from ..observability.metrics import MetricsCollector
 from ..registry.agent_registry import agent_registry
 from ..registry.tool_registry import tool_registry
 
@@ -82,11 +83,13 @@ class RetryTaskRunner(TaskRunner):
         timeout: float = 30.0,
         retry_on: Optional[List[str]] = None,
         retry_backoff: str = "exponential",
+        metrics_collector: Optional[MetricsCollector] = None,
     ):
         self.max_retries = max_retries
         self.timeout = timeout
         self.retry_on = retry_on or []
         self.retry_backoff = retry_backoff
+        self._metrics = metrics_collector
 
     # ── helpers ────────────────────────────────────────────────────────
 
@@ -130,6 +133,8 @@ class RetryTaskRunner(TaskRunner):
 
         last_error = None
         for attempt in range(1, self.max_retries + 1):
+            attempt_started = time.monotonic()
+            self._record_attempt(agent_name, "sync")
             try:
                 agent_instance = agent_registry.get_agent(agent_name)
                 resp = agent_instance.invoke({
@@ -145,9 +150,11 @@ class RetryTaskRunner(TaskRunner):
                     "Task succeeded",
                     extra={"task_id": task_id, "agent": agent_name, "attempt": attempt},
                 )
+                self._record_attempt_result(agent_name, "sync", "success", attempt_started)
                 return ok(content)
             except Exception as exc:
                 last_error = exc
+                self._record_attempt_result(agent_name, "sync", "failure", attempt_started)
                 should_retry = self._should_retry(exc)
                 wait = self._retry_wait(attempt)
                 logger.warning(
@@ -159,6 +166,7 @@ class RetryTaskRunner(TaskRunner):
                     },
                 )
                 if should_retry and attempt < self.max_retries:
+                    self._record_retry(agent_name, "sync")
                     time.sleep(wait)
                 else:
                     break
@@ -186,6 +194,8 @@ class RetryTaskRunner(TaskRunner):
 
         last_error = None
         for attempt in range(1, self.max_retries + 1):
+            attempt_started = time.monotonic()
+            self._record_attempt(agent_name, "async")
             try:
                 agent_instance = agent_registry.get_agent(agent_name)
                 resp = await asyncio.wait_for(
@@ -204,20 +214,24 @@ class RetryTaskRunner(TaskRunner):
                     "Task succeeded (async)",
                     extra={"task_id": task_id, "agent": agent_name, "attempt": attempt},
                 )
+                self._record_attempt_result(agent_name, "async", "success", attempt_started)
                 return ok(content)
             except asyncio.TimeoutError:
                 last_error = TimeoutError(f"Timeout ({self.timeout}s)")
+                self._record_attempt_result(agent_name, "async", "timeout", attempt_started)
                 logger.warning(
                     "Task timed out",
                     extra={"task_id": task_id, "agent": agent_name, "attempt": attempt, "timeout_s": self.timeout},
                 )
             except Exception as exc:
                 last_error = exc
+                self._record_attempt_result(agent_name, "async", "failure", attempt_started)
                 logger.warning(
                     "Task failed (async)",
                     extra={"task_id": task_id, "agent": agent_name, "attempt": attempt, "error": str(exc)},
                 )
             if self._should_retry(last_error) and attempt < self.max_retries:
+                self._record_retry(agent_name, "async")
                 await asyncio.sleep(self._retry_wait(attempt))
             else:
                 break
@@ -235,6 +249,34 @@ class RetryTaskRunner(TaskRunner):
             return 1
         return 2 ** (attempt - 1)
 
+    def _record_attempt(self, agent_name: str, mode: str) -> None:
+        if self._metrics is not None:
+            self._metrics.counter(
+                "execution.task_attempts",
+                tags={"agent": agent_name, "mode": mode},
+            )
+
+    def _record_attempt_result(
+        self,
+        agent_name: str,
+        mode: str,
+        status: str,
+        started: float,
+    ) -> None:
+        if self._metrics is None:
+            return
+        tags = {"agent": agent_name, "mode": mode, "status": status}
+        self._metrics.counter("execution.task_attempt_results", tags=tags)
+        self._metrics.histogram(
+            "execution.task_attempt_duration_ms",
+            (time.monotonic() - started) * 1000,
+            tags=tags,
+        )
+
+    def _record_retry(self, agent_name: str, mode: str) -> None:
+        if self._metrics is not None:
+            self._metrics.counter("execution.retries", tags={"agent": agent_name, "mode": mode})
+
 
 # ── Executor ─────────────────────────────────────────────────────────────────────
 
@@ -247,21 +289,30 @@ class Executor:
         policy: Optional[ExecutionPolicy] = None,
         max_retries: int = 3,
         timeout: float = 30.0,
+        metrics_collector: Optional[MetricsCollector] = None,
     ):
         self._policy = policy or ExecutionPolicy()
+        self._metrics = metrics_collector
         self._runner = task_runner or RetryTaskRunner(
             max_retries=self._policy.max_retries if policy else max_retries,
             timeout=self._policy.timeout_seconds if policy else timeout,
             retry_on=self._policy.retry_on,
             retry_backoff=self._policy.retry_backoff,
+            metrics_collector=metrics_collector,
         )
 
     def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute all pending tasks from the workflow plan."""
+        started = time.monotonic()
+        if self._metrics is not None:
+            self._metrics.counter("execution.requests", tags={"strategy": self._policy.strategy})
         workflow_plan = state.get("workflow_plan") or []
         pending = [t for t in workflow_plan if t.get("status") != "completed"]
+        if self._metrics is not None:
+            self._metrics.histogram("execution.pending_tasks", float(len(pending)))
 
         if not pending:
+            self._record_execution_complete(started, {}, status="no_pending")
             return {"messages": [AIMessage(content="All tasks completed")]}
 
         registered = set(agent_registry.list_agents())
@@ -298,6 +349,7 @@ class Executor:
             k: (v["data"] if v.get("success") else v.get("error", ""))
             for k, v in results.items()
         }
+        self._record_execution_complete(started, results, status="completed")
         return {
             "agent_results": flat,
             "workflow_plan": update_plan_status(workflow_plan, results),
@@ -311,6 +363,16 @@ class Executor:
         state: Dict[str, Any],
         previous: Dict[str, Any],
     ) -> Dict[str, Any]:
+        if self._metrics is not None:
+            self._metrics.counter(
+                "execution.batches",
+                tags={"strategy": self._policy.strategy},
+            )
+            self._metrics.histogram(
+                "execution.batch_size",
+                float(len(tasks)),
+                tags={"strategy": self._policy.strategy},
+            )
         if self._policy.strategy == "sequential":
             results = {}
             for task in tasks:
@@ -318,6 +380,7 @@ class Executor:
                 confirmation = _confirmation_required(task)
                 if confirmation:
                     results[tid] = confirmation
+                    self._record_confirmation_wait(task)
                     continue
                 try:
                     results[tid] = self._runner.run(task, clean_msgs, state, previous)
@@ -349,6 +412,33 @@ class Executor:
         return asyncio.run(
             _async_batch(sorted_tasks, self._runner, clean_msgs, state, previous, self._policy.max_concurrency)
         )
+
+    def _record_execution_complete(
+        self,
+        started: float,
+        results: Dict[str, Any],
+        *,
+        status: str,
+    ) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.histogram(
+            "execution.duration_ms",
+            (time.monotonic() - started) * 1000,
+            tags={"status": status, "strategy": self._policy.strategy},
+        )
+        for result in results.values():
+            result_status = _result_status(result)
+            self._metrics.counter("execution.task_results", tags={"status": result_status})
+            if result_status == "waiting_confirmation":
+                self._metrics.counter("execution.confirmation_waits")
+
+    def _record_confirmation_wait(self, task: Dict[str, Any]) -> None:
+        if self._metrics is not None:
+            self._metrics.counter(
+                "execution.confirmation_waits",
+                tags={"agent": task.get("agent", "unknown")},
+            )
 
 
 # ── Batch execution helpers ──────────────────────────────────────────────────────
@@ -445,6 +535,15 @@ def _confirmation_required(task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if meta and meta.requires_confirmation:
             return waiting_confirmation(task, f"tool_requires_confirmation:{tool_name}")
     return None
+
+
+def _result_status(result: Any) -> str:
+    if not isinstance(result, dict):
+        return "unknown"
+    status = result.get("status")
+    if status:
+        return str(status)
+    return "success" if result.get("success") else "failure"
 
 
 def _extract_agent_answer(response: Any) -> str:
