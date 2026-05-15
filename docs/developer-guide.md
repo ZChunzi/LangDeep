@@ -1,6 +1,6 @@
 # LangDeep Developer Guide
 
-Version: `2.0.12`
+Version: `2.0.13`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
@@ -83,7 +83,7 @@ Current package version is exposed as:
 ```python
 import langdeep
 
-assert langdeep.__version__ == "2.0.12"
+assert langdeep.__version__ == "2.0.13"
 ```
 
 ## 5. Registries
@@ -760,7 +760,7 @@ Health checks:
 from langdeep import HealthChecker
 
 
-status = HealthChecker(version="2.0.12").check_all()
+status = HealthChecker(version="2.0.13").check_all()
 print(status.status)
 print(status.checks)
 ```
