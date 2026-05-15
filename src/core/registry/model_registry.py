@@ -208,7 +208,7 @@ class ProviderRegistry:
                 context={"provider": "deepseek"},
             )
         base_url = config.base_url or "https://api.deepseek.com"
-        extra = config.extra_params or {}
+        extra = _normalize_deepseek_extra_params(config.extra_params or {})
 
         # Build kwargs from ModelConfig — let extra_params override if needed.
         kwargs: Dict[str, Any] = {
@@ -235,6 +235,17 @@ class ProviderRegistry:
             },
         )
         return DeepSeekChatModel(**kwargs)
+
+
+def _normalize_deepseek_extra_params(extra_params: Dict[str, Any]) -> Dict[str, Any]:
+    """Accept low-friction DeepSeek thinking config and convert it to SDK shape."""
+    params = dict(extra_params)
+    thinking = params.pop("thinking", None)
+    if thinking is not None:
+        extra_body = dict(params.get("extra_body") or {})
+        extra_body.setdefault("thinking", thinking)
+        params["extra_body"] = extra_body
+    return params
 
 
 def _detect_deepseek_thinking(extra_params: Dict[str, Any]) -> Optional[bool]:

@@ -1,6 +1,6 @@
 # LangDeep Developer Guide
 
-Version: `2.0.8`
+Version: `2.0.9`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
@@ -66,7 +66,7 @@ The top-level `langdeep` package exports:
 - `TaskRunner`, `RetryTaskRunner`
 - `ResultMerger`, `LLMMerger`, `ConcatMerger`
 - `model`, `provider`, `register_provider`
-- `regist_tool`, `agent`
+- `register_tool`, `regist_tool`, `agent`
 - `memory`, `cache`, `im_channel`
 - `ModelConfig`
 - `WorkflowPlan`, `WorkflowTask`, `validate_workflow_plan`
@@ -81,7 +81,7 @@ Current package version is exposed as:
 ```python
 import langdeep
 
-assert langdeep.__version__ == "2.0.8"
+assert langdeep.__version__ == "2.0.9"
 ```
 
 ## 5. Registries
@@ -192,6 +192,18 @@ def deepseek_v4():
     pass
 ```
 
+`@model` accepts provider-specific settings in two equivalent forms:
+
+```python
+@model(..., extra_params={"timeout": 30})
+@model(..., timeout=30)
+```
+
+If both forms are used, direct keyword arguments override values from
+`extra_params`. For DeepSeek compatibility, top-level `thinking={...}` is also
+accepted and normalized into `extra_body={"thinking": ...}` before constructing
+`DeepSeekChatModel`.
+
 For custom providers, reuse `build_deepseek_payload_messages(messages, profile)`
 to convert LangChain `BaseMessage` objects into DeepSeek-compatible request
 dictionaries. Override `reasoning_content_policy` only when a gateway or model
@@ -229,13 +241,13 @@ The top-level `register_provider(name, factory)` function requires both argument
 
 ## 8. Tools
 
-`@regist_tool` wraps a Python function with LangChain's tool decorator and registers metadata. The function must have a docstring because LangChain validates tool descriptions before LangDeep stores metadata:
+`@register_tool` wraps a Python function with LangChain's tool decorator and registers metadata. `@regist_tool` remains available as a backward-compatible alias. The function must have a docstring because LangChain validates tool descriptions before LangDeep stores metadata:
 
 ```python
-from langdeep import regist_tool
+from langdeep import register_tool
 
 
-@regist_tool(
+@register_tool(
     name="lookup_policy",
     description="Look up an internal policy document.",
     category="knowledge",
@@ -719,7 +731,7 @@ Health checks:
 from langdeep import HealthChecker
 
 
-status = HealthChecker(version="2.0.8").check_all()
+status = HealthChecker(version="2.0.9").check_all()
 print(status.status)
 print(status.checks)
 ```

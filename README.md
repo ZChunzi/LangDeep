@@ -13,7 +13,7 @@
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
-**Project Status: Beta - v2.0.8**
+**Project Status: Beta - v2.0.9**
 
 The core API has entered its second major version and is suitable for controlled internal enterprise pilots. Critical production deployments should still complete provider, secret, audit, sandbox, persistence, and operations reviews before release.
 
@@ -23,11 +23,11 @@ The core API has entered its second major version and is suitable for controlled
 
 ## ✨ Why LangDeep?
 
-LangDeep is built on **LangChain** and **LangGraph**. It provides a registry-based and decorator-first framework for multi-agent workflows. You can register components through declarative APIs such as `@model`, `@regist_tool`, and `@agent`, then let `FlowOrchestrator` coordinate Supervisor routing, Planner generation, Executor execution, and Aggregator merging.
+LangDeep is built on **LangChain** and **LangGraph**. It provides a registry-based and decorator-first framework for multi-agent workflows. You can register components through declarative APIs such as `@model`, `@register_tool`, and `@agent`, then let `FlowOrchestrator` coordinate Supervisor routing, Planner generation, Executor execution, and Aggregator merging.
 
 The focus of v2.0.0 is robustness: runtime diagnostics, stronger health checks, public model configuration snapshots, and stricter test and coverage gates. These capabilities make LangDeep easier to validate before service startup and safer to operate in CI pipelines.
 
-- **🎨 Annotation-driven registration**: register components with `@model`, `@provider`, `@regist_tool`, `@agent`, `@memory`, `@cache`, `@im_channel`, and `@sandbox`.
+- **🎨 Annotation-driven registration**: register components with `@model`, `@provider`, `@register_tool`, `@agent`, `@memory`, `@cache`, `@im_channel`, and `@sandbox`.
 - **🧠 Supervisor routing**: use keyword routing first, then LLM tool-call routing for more complex requests.
 - **📋 Planning and execution**: support LLM-generated plans, explicit `workflow_plan`, dependency ordering, concurrent execution, and retries.
 - **🔌 Provider extensibility**: built-in OpenAI, Anthropic, Azure OpenAI, Ollama, Vertex AI, Google GenAI, DeepSeek, and mock providers, with custom provider support.
@@ -75,12 +75,12 @@ pip install -e ".[dev]"
 
 ## 🚀 Quick Start: No External API Key Required
 
-The example below uses the built-in `mock` provider and can run locally without external credentials. Note: functions wrapped by `@regist_tool` must have a docstring because LangChain validates tool descriptions when creating tools.
+The example below uses the built-in `mock` provider and can run locally without external credentials. Note: functions wrapped by `@register_tool` or `@regist_tool` must have a docstring because LangChain validates tool descriptions when creating tools.
 
 ```python
 from langchain_core.messages import AIMessage, HumanMessage
 
-from langdeep import FlowOrchestrator, agent, model, regist_tool, validate_runtime
+from langdeep import FlowOrchestrator, agent, model, register_tool, validate_runtime
 
 
 @model(name="mock_chat", provider="mock", model_name="mock-chat")
@@ -88,7 +88,7 @@ def mock_chat():
     pass
 
 
-@regist_tool(name="get_weather", description="Return mock weather.")
+@register_tool(name="get_weather", description="Return mock weather.")
 def get_weather(city: str) -> str:
     """Return mock weather."""
     return f"{city}: sunny, 25C"
@@ -146,7 +146,7 @@ LangDeep runtime is centered around a set of in-process singleton registries. De
 |---|---|---|
 | `@model` | `ModelConfig` | Register model configuration; model instances are lazy-loaded |
 | `@provider` / `register_provider` | Provider factory | Add or override model providers |
-| `@regist_tool` | LangChain Tool | Register tools available to agents |
+| `@register_tool` | LangChain Tool | Register tools available to agents |
 | `@agent` | Agent factory and metadata | Register routable and executable agents |
 | `@memory` | Memory backend factory | Register session memory backends |
 | `@cache` | Cache backend factory | Register cache backends |
@@ -220,7 +220,7 @@ flowchart TB
     subgraph App["Application Code"]
         Models["@model"]
         Providers["@provider / register_provider"]
-        Tools["@regist_tool"]
+        Tools["@register_tool"]
         Agents["@agent"]
         Memory["@memory"]
         Cache["@cache"]
@@ -367,6 +367,11 @@ def deepseek_v4():
     pass
 ```
 
+`@model` accepts provider-specific settings either through `extra_params={...}`
+or directly as keyword arguments. For DeepSeek compatibility, top-level
+`thinking={...}` is also accepted and normalized into DeepSeek's required
+`extra_body={"thinking": ...}` request shape.
+
 For advanced providers, reuse `build_deepseek_payload_messages()` or set
 `reasoning_content_policy` to `auto`, `preserve`, `tool_calls`, or `drop`.
 
@@ -400,10 +405,10 @@ register_provider("other_provider", create_other_provider)
 ### Register a tool
 
 ```python
-from langdeep import regist_tool
+from langdeep import register_tool
 
 
-@regist_tool(
+@register_tool(
     name="search_docs",
     description="Search internal documentation.",
     category="knowledge",
@@ -413,6 +418,8 @@ def search_docs(query: str) -> str:
     """Search internal documentation."""
     return f"results for {query}"
 ```
+
+`regist_tool` remains available as a backward-compatible alias.
 
 ### Register an agent
 

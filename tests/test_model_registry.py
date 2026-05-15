@@ -217,3 +217,32 @@ def test_deepseek_provider_keeps_thinking_mode_configuration(monkeypatch):
     llm = model_registry.get_model("deepseek_thinking")
     assert isinstance(llm, FakeDeepSeekChatModel)
     assert llm.kwargs["extra_body"]["thinking"]["type"] == "enabled"
+
+
+def test_deepseek_provider_accepts_top_level_thinking_configuration(monkeypatch):
+    class FakeDeepSeekChatModel:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(
+        "langdeep.core.adapters.deepseek.DeepSeekChatModel",
+        FakeDeepSeekChatModel,
+    )
+
+    model_registry.register(
+        "deepseek_top_level_thinking",
+        ModelConfig(
+            provider="deepseek",
+            model_name="deepseek-v4-pro",
+            extra_params={
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": "high",
+            },
+        ),
+    )
+
+    llm = model_registry.get_model("deepseek_top_level_thinking")
+    assert isinstance(llm, FakeDeepSeekChatModel)
+    assert "thinking" not in llm.kwargs
+    assert llm.kwargs["extra_body"]["thinking"]["type"] == "enabled"
+    assert llm.kwargs["reasoning_effort"] == "high"

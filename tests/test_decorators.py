@@ -6,7 +6,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langdeep.core.decorators.agent import agent
 from langdeep.core.decorators.model import model
-from langdeep.core.decorators.tool import regist_tool
+from langdeep.core.decorators.tool import register_tool, regist_tool
+from langdeep.core.adapters.deepseek import configure_deepseek_v4
 from langdeep.core.decorators.provider import (
     anthropic_provider,
     azure_provider,
@@ -86,6 +87,60 @@ def test_model_decorator():
     cleaned = clean_registries()
 
 
+def test_model_decorator_accepts_extra_params_mapping():
+    @model(
+        name="deepseek-v4-test",
+        provider="deepseek",
+        model_name="deepseek-v4-pro",
+        extra_params={
+            "extra_body": {"thinking": {"type": "enabled"}},
+            "reasoning_effort": "high",
+        },
+    )
+    def deepseek_v4():
+        pass
+
+    config = model_registry.get_config("deepseek-v4-test")
+    assert "extra_params" not in config.extra_params
+    assert config.extra_params["extra_body"]["thinking"]["type"] == "enabled"
+    assert config.extra_params["reasoning_effort"] == "high"
+
+
+def test_model_decorator_accepts_deepseek_config_helper():
+    @model(
+        name="deepseek-v4-helper-test",
+        provider="deepseek",
+        model_name="deepseek-v4-pro",
+        extra_params=configure_deepseek_v4(
+            thinking="enabled",
+            reasoning_effort="high",
+        ),
+    )
+    def deepseek_v4_helper():
+        pass
+
+    config = model_registry.get_config("deepseek-v4-helper-test")
+    assert config.extra_params["extra_body"]["thinking"]["type"] == "enabled"
+    assert config.extra_params["reasoning_effort"] == "high"
+    assert config.extra_params["reasoning_content_policy"] == "auto"
+
+
+def test_model_decorator_merges_extra_params_mapping_with_kwargs():
+    @model(
+        name="merged-extra-params",
+        provider="mock",
+        model_name="mock",
+        extra_params={"timeout": 10, "metadata": {"source": "mapping"}},
+        timeout=20,
+    )
+    def merged_model():
+        pass
+
+    config = model_registry.get_config("merged-extra-params")
+    assert config.extra_params["timeout"] == 20
+    assert config.extra_params["metadata"] == {"source": "mapping"}
+
+
 def test_regist_tool_decorator():
     @regist_tool(name="weather_tool", category="api", tags=["weather", "external"])
     def get_weather(city: str) -> str:
@@ -97,6 +152,20 @@ def test_regist_tool_decorator():
     assert meta.category == "api"
     assert "weather" in meta.tags
     assert get_weather("Paris") == "Paris: 22C"
+
+
+def test_register_tool_alias():
+    @register_tool(name="alias_weather_tool", category="api")
+    def get_alias_weather(city: str) -> str:
+        """Get weather for a city."""
+        return f"{city}: 20C"
+
+    assert "alias_weather_tool" in tool_registry.list_tools()
+    assert get_alias_weather("Paris") == "Paris: 20C"
+
+    from langdeep import register_tool as public_register_tool
+
+    assert public_register_tool is register_tool
 
 
 def test_provider_decorator():

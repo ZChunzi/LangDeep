@@ -20,7 +20,7 @@ from langdeep.core.orchestrator import (
     err,
 )
 from langdeep.core.decorators.model import model
-from langdeep.core.decorators.tool import regist_tool
+from langdeep.core.decorators.tool import register_tool, regist_tool
 from langdeep.core.decorators.agent import agent
 from langdeep.core.decorators.provider import provider
 from langdeep.core.decorators import memory, cache, im_channel
@@ -67,7 +67,7 @@ from langdeep.core.errors import (
 )
 from langdeep.core.logging import get_logger, set_trace_context, get_trace_id
 
-__version__ = "2.0.8"
+__version__ = "2.0.9"
 
 
 def register_provider(name: str, factory: Callable[[ModelConfig], BaseChatModel]) -> Callable[[ModelConfig], BaseChatModel]:
@@ -99,6 +99,7 @@ __all__ = [
     "err",
     # Decorators and provider helpers
     "model",
+    "register_tool",
     "regist_tool",
     "agent",
     "provider",

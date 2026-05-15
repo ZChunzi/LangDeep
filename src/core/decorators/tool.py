@@ -1,4 +1,4 @@
-"""@regist_tool decorator — registers a tool with metadata in the tool registry."""
+"""Tool registration decorators."""
 
 from functools import wraps
 from typing import Callable, List, Optional
@@ -20,7 +20,7 @@ def regist_tool(
 
     Usage::
 
-        @regist_tool(name="weather", category="external", tags=["api"])
+        @register_tool(name="weather", category="external", tags=["api"])
         def get_weather(city: str) -> str:
             '''Get weather for a city.'''
             return f"{city}: sunny, 22C"
@@ -50,3 +50,6 @@ def regist_tool(
         return wrapper
 
     return decorator
+
+
+register_tool = regist_tool

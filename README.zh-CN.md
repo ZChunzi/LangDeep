@@ -13,7 +13,7 @@
 
 **语言：** [English](README.md) | 简体中文
 
-**项目状态：Beta - v2.0.8**
+**项目状态：Beta - v2.0.9**
 
 核心 API 已进入第二个大版本，适合企业内部受控试点。关键生产环境仍应先完成模型供应商、密钥、审计、沙箱、持久化和运维策略评审。
 
@@ -23,11 +23,11 @@
 
 ## ✨ 为什么选择 LangDeep？
 
-LangDeep 基于 **LangChain** 和 **LangGraph** 构建，提供一套以注册表和装饰器为核心的多 Agent 工作流框架。你可以用 `@model`、`@regist_tool`、`@agent` 等声明式 API 注册组件，再由 `FlowOrchestrator` 统一完成 Supervisor 路由、Planner 规划、Executor 执行和 Aggregator 聚合。
+LangDeep 基于 **LangChain** 和 **LangGraph** 构建，提供一套以注册表和装饰器为核心的多 Agent 工作流框架。你可以用 `@model`、`@register_tool`、`@agent` 等声明式 API 注册组件，再由 `FlowOrchestrator` 统一完成 Supervisor 路由、Planner 规划、Executor 执行和 Aggregator 聚合。
 
 v2.0.0 的重点是稳健性：新增运行时诊断、增强健康检查、公开模型配置快照接口，并完善测试与覆盖率门槛，便于在企业系统中做启动前校验和持续集成。
 
-- **🎨 注解驱动**：使用 `@model`、`@provider`、`@regist_tool`、`@agent`、`@memory`、`@cache`、`@im_channel`、`@sandbox` 注册组件。
+- **🎨 注解驱动**：使用 `@model`、`@provider`、`@register_tool`、`@agent`、`@memory`、`@cache`、`@im_channel`、`@sandbox` 注册组件。
 - **🧠 Supervisor 路由**：先走关键词快速路由，再走 LLM tool-call 路由，降低简单请求的调度成本。
 - **📋 任务规划与执行**：支持 LLM 动态规划、显式 `workflow_plan`、依赖排序、并发执行和重试。
 - **🔌 模型 Provider 扩展**：内置 OpenAI、Anthropic、Azure OpenAI、Ollama、Vertex AI、Google GenAI、DeepSeek、mock provider，也支持自定义 provider。
@@ -75,12 +75,12 @@ pip install -e ".[dev]"
 
 ## 🚀 快速开始：无外部 API Key 示例
 
-下面示例使用内置 `mock` provider，可以直接在本地运行。注意：`@regist_tool` 包装的函数必须有 docstring，因为 LangChain 在创建 Tool 时会校验描述。
+下面示例使用内置 `mock` provider，可以直接在本地运行。注意：`@register_tool` 或 `@regist_tool` 包装的函数必须有 docstring，因为 LangChain 在创建 Tool 时会校验描述。
 
 ```python
 from langchain_core.messages import AIMessage, HumanMessage
 
-from langdeep import FlowOrchestrator, agent, model, regist_tool, validate_runtime
+from langdeep import FlowOrchestrator, agent, model, register_tool, validate_runtime
 
 
 @model(name="mock_chat", provider="mock", model_name="mock-chat")
@@ -88,7 +88,7 @@ def mock_chat():
     pass
 
 
-@regist_tool(name="get_weather", description="返回模拟天气。")
+@register_tool(name="get_weather", description="返回模拟天气。")
 def get_weather(city: str) -> str:
     """返回模拟天气。"""
     return f"{city}: sunny, 25C"
@@ -146,7 +146,7 @@ LangDeep 运行时围绕一组进程内 singleton 注册表工作。装饰器在
 |---|---|---|
 | `@model` | `ModelConfig` | 注册模型配置，模型实例懒加载 |
 | `@provider` / `register_provider` | Provider 工厂 | 接入或覆盖模型提供商 |
-| `@regist_tool` | LangChain Tool | 注册可供 Agent 使用的工具 |
+| `@register_tool` | LangChain Tool | 注册可供 Agent 使用的工具 |
 | `@agent` | Agent 工厂和元数据 | 注册可路由、可执行的 Agent |
 | `@memory` | Memory 后端工厂 | 注册会话记忆后端 |
 | `@cache` | Cache 后端工厂 | 注册缓存后端 |
@@ -220,7 +220,7 @@ flowchart TB
     subgraph App["应用代码"]
         Models["@model"]
         Providers["@provider / register_provider"]
-        Tools["@regist_tool"]
+        Tools["@register_tool"]
         Agents["@agent"]
         Memory["@memory"]
         Cache["@cache"]
@@ -368,6 +368,10 @@ def deepseek_v4():
     pass
 ```
 
+`@model` 支持通过 `extra_params={...}` 或直接关键字参数传递 provider
+专属配置。对 DeepSeek，LangDeep 也兼容顶层 `thinking={...}`，并会自动
+转换为 DeepSeek 要求的 `extra_body={"thinking": ...}` 请求结构。
+
 高级 provider 可以复用 `build_deepseek_payload_messages()`，或将
 `reasoning_content_policy` 显式设置为 `auto`、`preserve`、`tool_calls`
 或 `drop`。
@@ -402,10 +406,10 @@ register_provider("other_provider", create_other_provider)
 ### 注册工具
 
 ```python
-from langdeep import regist_tool
+from langdeep import register_tool
 
 
-@regist_tool(
+@register_tool(
     name="search_docs",
     description="搜索内部文档。",
     category="knowledge",
@@ -415,6 +419,8 @@ def search_docs(query: str) -> str:
     """搜索内部文档。"""
     return f"results for {query}"
 ```
+
+`regist_tool` 仍作为向后兼容别名保留。
 
 ### 注册 Agent
 
