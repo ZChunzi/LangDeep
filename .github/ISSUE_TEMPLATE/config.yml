@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and discussions
+    url: https://github.com/ZChunzi/LangDeep/discussions
+    about: Ask usage questions or discuss ideas in GitHub Discussions.
+  - name: Security reports
+    url: https://github.com/ZChunzi/LangDeep/blob/main/SECURITY.md
+    about: Please report security vulnerabilities privately instead of opening public issues.
