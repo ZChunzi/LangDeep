@@ -13,7 +13,7 @@
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
-**Project Status: Beta - v2.0.7**
+**Project Status: Beta - v2.0.8**
 
 The core API has entered its second major version and is suitable for controlled internal enterprise pilots. Critical production deployments should still complete provider, secret, audit, sandbox, persistence, and operations reviews before release.
 
@@ -341,6 +341,34 @@ Built-in provider names:
 - `google_genai`
 - `deepseek`
 - `mock`
+
+### DeepSeek v4 thinking mode
+
+The built-in `deepseek` provider uses `DeepSeekChatModel`, a LangChain
+`ChatOpenAI` adapter that preserves DeepSeek `reasoning_content` for v4 tool
+calls and removes it for `deepseek-reasoner` history.
+
+```python
+import os
+from langdeep import configure_deepseek_v4, model
+
+
+@model(
+    name="deepseek_v4",
+    provider="deepseek",
+    model_name="deepseek-v4-pro",
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
+    extra_params=configure_deepseek_v4(
+        thinking="enabled",
+        reasoning_effort="high",
+    ),
+)
+def deepseek_v4():
+    pass
+```
+
+For advanced providers, reuse `build_deepseek_payload_messages()` or set
+`reasoning_content_policy` to `auto`, `preserve`, `tool_calls`, or `drop`.
 
 ### Register a custom provider
 

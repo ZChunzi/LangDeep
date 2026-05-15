@@ -13,7 +13,7 @@
 
 **语言：** [English](README.md) | 简体中文
 
-**项目状态：Beta - v2.0.7**
+**项目状态：Beta - v2.0.8**
 
 核心 API 已进入第二个大版本，适合企业内部受控试点。关键生产环境仍应先完成模型供应商、密钥、审计、沙箱、持久化和运维策略评审。
 
@@ -341,6 +341,36 @@ def gpt4o():
 - `google_genai`
 - `deepseek`
 - `mock`
+
+### DeepSeek v4 thinking mode
+
+内置 `deepseek` provider 会使用 `DeepSeekChatModel`。这是一个面向
+LangChain `ChatOpenAI` 的适配器：DeepSeek v4 工具调用会保留
+`reasoning_content`，`deepseek-reasoner` 历史消息会自动移除
+`reasoning_content`。
+
+```python
+import os
+from langdeep import configure_deepseek_v4, model
+
+
+@model(
+    name="deepseek_v4",
+    provider="deepseek",
+    model_name="deepseek-v4-pro",
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
+    extra_params=configure_deepseek_v4(
+        thinking="enabled",
+        reasoning_effort="high",
+    ),
+)
+def deepseek_v4():
+    pass
+```
+
+高级 provider 可以复用 `build_deepseek_payload_messages()`，或将
+`reasoning_content_policy` 显式设置为 `auto`、`preserve`、`tool_calls`
+或 `drop`。
 
 ### 注册自定义 Provider
 

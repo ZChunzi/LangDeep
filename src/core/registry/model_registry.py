@@ -201,7 +201,7 @@ class ProviderRegistry:
 
     def _create_deepseek_model(self, config: ModelConfig) -> BaseChatModel:
         try:
-            from ..adapters.deepseek import DeepSeekChatModel
+            from ..adapters.deepseek import DeepSeekChatModel, DeepSeekCompatibilityProfile
         except ImportError:
             raise ProviderImportError(
                 "DeepSeek provider requires langchain-openai package",
@@ -222,19 +222,31 @@ class ProviderRegistry:
             kwargs["max_tokens"] = config.max_tokens
         kwargs.update(extra)  # extra_params take precedence
 
-        use_thinking = _detect_deepseek_thinking(extra)
+        profile = DeepSeekCompatibilityProfile(
+            model_name=config.model_name,
+            reasoning_content_policy=extra.get("reasoning_content_policy", "auto"),
+            thinking_enabled=_detect_deepseek_thinking(extra),
+        )
         logger.info(
             "DeepSeek provider selected — using DeepSeekChatModel",
-            extra={"thinking_mode": use_thinking},
+            extra={
+                "reasoning_content_policy": profile.resolved_reasoning_content_policy(),
+                "thinking_enabled": profile.thinking_enabled,
+            },
         )
         return DeepSeekChatModel(**kwargs)
 
 
-def _detect_deepseek_thinking(extra_params: Dict[str, Any]) -> bool:
-    """Check whether *extra_params* enables DeepSeek thinking mode."""
+def _detect_deepseek_thinking(extra_params: Dict[str, Any]) -> Optional[bool]:
+    """Check whether *extra_params* explicitly toggles DeepSeek thinking mode."""
     extra_body = extra_params.get("extra_body") or {}
     thinking = extra_body.get("thinking") or {}
-    return bool(thinking.get("type") == "enabled" or thinking.get("enabled"))
+    if thinking.get("type") == "enabled":
+        return True
+    if thinking.get("type") == "disabled":
+        return False
+    enabled = thinking.get("enabled")
+    return enabled if isinstance(enabled, bool) else None
 
 
 # ── Mock provider ────────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # LangDeep Developer Guide
 
-Version: `2.0.7`
+Version: `2.0.8`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
@@ -39,7 +39,8 @@ pip install -e ".[dev]"
 ```
 
 The `all` extra installs optional model provider dependencies. Individual provider
-groups are available as `anthropic`, `google-genai`, `vertexai`, and `ollama`.
+groups are available as `openai`, `azure-openai`, `deepseek`, `anthropic`,
+`google-genai`, `vertexai`, and `ollama`.
 The `dev` extra includes test, coverage, lint, and build tooling used by the repository.
 
 ## 3. Runtime Model
@@ -71,6 +72,8 @@ The top-level `langdeep` package exports:
 - `WorkflowPlan`, `WorkflowTask`, `validate_workflow_plan`
 - `HealthChecker`, `MetricsCollector`
 - `DiagnosticIssue`, `RuntimeDiagnostics`, `RuntimeValidator`, `validate_runtime`
+- `DeepSeekChatModel`, `configure_deepseek_v4`,
+  `build_deepseek_payload_messages`
 - sandbox, process, secrets, logging, and structured error helpers
 
 Current package version is exposed as:
@@ -78,7 +81,7 @@ Current package version is exposed as:
 ```python
 import langdeep
 
-assert langdeep.__version__ == "2.0.7"
+assert langdeep.__version__ == "2.0.8"
 ```
 
 ## 5. Registries
@@ -154,6 +157,50 @@ configs = model_registry.list_model_configs()
 ```
 
 Both methods return copies, so callers cannot mutate registry state accidentally.
+
+### DeepSeek v4 Compatibility
+
+The built-in `deepseek` provider returns `DeepSeekChatModel`. It wraps
+LangChain's `ChatOpenAI` request and streaming conversion paths so DeepSeek
+thinking-mode metadata survives framework boundaries.
+
+DeepSeek v4 models such as `deepseek-v4-pro` and `deepseek-v4-flash` return
+`reasoning_content` in thinking mode. For tool-call turns, that field must be
+sent back with the assistant message in later requests. `deepseek-reasoner`
+uses a different rule and must not receive prior `reasoning_content` in request
+history. LangDeep's default `reasoning_content_policy="auto"` selects these
+behaviors by model name.
+
+Recommended v4 registration:
+
+```python
+import os
+from langdeep import configure_deepseek_v4, model
+
+
+@model(
+    name="deepseek_v4",
+    provider="deepseek",
+    model_name="deepseek-v4-pro",
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
+    extra_params=configure_deepseek_v4(
+        thinking="enabled",
+        reasoning_effort="high",
+    ),
+)
+def deepseek_v4():
+    pass
+```
+
+For custom providers, reuse `build_deepseek_payload_messages(messages, profile)`
+to convert LangChain `BaseMessage` objects into DeepSeek-compatible request
+dictionaries. Override `reasoning_content_policy` only when a gateway or model
+alias has provider-specific behavior:
+
+- `auto`: choose based on model name and thinking toggle.
+- `tool_calls`: replay reasoning only for assistant messages with tool calls.
+- `preserve`: always replay reasoning when present.
+- `drop`: remove reasoning from request history.
 
 ## 7. Providers
 
@@ -672,7 +719,7 @@ Health checks:
 from langdeep import HealthChecker
 
 
-status = HealthChecker(version="2.0.7").check_all()
+status = HealthChecker(version="2.0.8").check_all()
 print(status.status)
 print(status.checks)
 ```
