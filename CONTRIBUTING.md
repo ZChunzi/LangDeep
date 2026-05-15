@@ -1,226 +1,119 @@
 # Contributing to LangDeep
 
-Thank you for your interest in improving LangDeep. This guide explains how to report issues, propose changes, prepare a development environment, run quality gates, and submit pull requests that are easy to review.
+LangDeep is an annotation-driven multi-agent workflow framework built on
+LangChain and LangGraph. Contributions should make the framework easier to use
+without weakening its extension points, runtime safety, or compatibility with
+the LangChain ecosystem.
 
-LangDeep is an annotation-driven multi-agent workflow framework built on LangChain and LangGraph. Contributions should preserve the framework's current architecture, keep public APIs stable where possible, and improve reliability for real application and enterprise usage.
+## Good First Contribution Areas
 
-## Code of Conduct
+Start with scoped tasks that have clear acceptance criteria:
 
-Be respectful, specific, and constructive. Focus discussions on technical facts, reproducible behavior, and maintainable solutions. Harassment, personal attacks, or intentionally disruptive behavior are not acceptable in project spaces.
+- Documentation corrections in `README.md`, `README.zh-CN.md`, or
+  `docs/developer-guide.md`.
+- Examples under `examples/` that run without paid external services.
+- Tests that cover public APIs such as `FlowOrchestrator`, decorators,
+  registries, memory, sandbox, tools, and provider adapters.
+- Small usability helpers that reduce boilerplate while preserving advanced
+  LangChain/LangGraph interoperability.
 
-## Ways to Contribute
-
-Useful contributions include:
-
-- Bug reports with a minimal reproduction.
-- Fixes for runtime, orchestration, registry, provider, cache, memory, sandbox, observability, or documentation issues.
-- Tests that cover missing behavior or prevent regressions.
-- Provider integrations that follow the existing `ModelConfig` and provider factory contracts.
-- Documentation improvements that match the current implementation.
-- Performance, reliability, or diagnostics improvements with clear tradeoffs.
-
-Before starting a large feature or behavior-changing refactor, open an issue or discussion first. This helps align the design before implementation work begins.
-
-## Reporting Issues
-
-When opening a bug report, include:
-
-- LangDeep version or commit SHA.
-- Python version and operating system.
-- Installed dependency set, especially optional provider packages.
-- A minimal code sample or test case that reproduces the issue.
-- Expected behavior and actual behavior.
-- Full traceback or relevant logs, with secrets removed.
-
-For feature requests, describe the use case, the proposed API or behavior, and why the existing extension points are insufficient.
-
-## Security Reports
-
-Do not report security vulnerabilities through public GitHub issues.
-
-If you discover a vulnerability, contact the maintainer privately through the email listed in `pyproject.toml`. Include enough detail to reproduce and assess the issue. Avoid sharing exploit details publicly until a fix or mitigation is available.
-
-Security-sensitive areas include:
-
-- Sandbox execution.
-- Secrets handling.
-- IM/webhook integrations.
-- External workflow plan ingestion.
-- Tool execution boundaries.
-- Provider authentication and request routing.
+Large API changes, provider additions, new storage backends, or sandbox changes
+should start with an issue before implementation.
 
 ## Development Setup
 
-Fork the repository, then clone your fork:
-
 ```bash
 git clone https://github.com/<your-user>/LangDeep.git
-cd LangDeep
-```
-
-Create and activate a virtual environment:
-
-```bash
+cd LangDeep/LangDeep
 python -m venv .venv
 source .venv/bin/activate
-```
-
-Install development dependencies:
-
-```bash
 python -m pip install -U pip
 python -m pip install -e ".[dev]"
 ```
 
-Install optional provider and persistence dependencies only when your change needs them:
+Provider-specific extras are optional:
 
 ```bash
+python -m pip install -e ".[deepseek]"
 python -m pip install -e ".[all]"
-python -m pip install -e ".[persist]"
-```
-
-## Repository Layout
-
-The most important paths are:
-
-- `src/`: LangDeep package source code.
-- `tests/`: unit, integration, edge-case, and diagnostics tests.
-- `tests/run_all.py`: repository test runner with ordered module execution.
-- `scripts/run_tests.py`: convenience wrapper around `tests/run_all.py`.
-- `docs/`: developer and architecture documentation.
-- `pyproject.toml`: package metadata, dependencies, pytest, ruff, and coverage configuration.
-- `README.md` and `README.zh-CN.md`: public project documentation.
-
-## Development Workflow
-
-Use a focused branch name:
-
-```bash
-git checkout -b fix/runtime-diagnostics
-```
-
-Keep changes scoped. Avoid unrelated formatting churn, generated artifacts, dependency lock changes, or broad refactors unless they are required for the issue being solved.
-
-Recommended local loop:
-
-```bash
-python -m ruff check src tests
-python -m pytest --cov --cov-report=term-missing --cov-report=xml
-python tests/run_all.py
-python -m compileall -q src tests
-python -m build --no-isolation
-```
-
-For faster iteration, run a targeted subset first:
-
-```bash
-python -m pytest tests/test_diagnostics.py
-python tests/run_all.py --filter diagnostics
 ```
 
 ## Quality Gates
 
-Pull requests should pass the same checks used by maintainers:
+Run these before opening a pull request:
 
 ```bash
-# Static correctness checks
 python -m ruff check src tests
-
-# Standard pytest suite with coverage
-python -m pytest --cov --cov-report=term-missing --cov-report=xml
-
-# LangDeep custom ordered runner
-python tests/run_all.py
-
-# Syntax and import compilation check
+python -m pytest --cov=src --cov-report=term-missing
 python -m compileall -q src tests
-
-# Package build check
-python -m build --no-isolation
 ```
 
-The current coverage threshold is configured in `pyproject.toml` under `[tool.coverage.report]`. Do not lower the threshold to make a pull request pass.
+Use targeted tests while iterating:
 
-## Testing Guidelines
+```bash
+python -m pytest tests/test_orchestrator.py
+python -m pytest tests/test_readme_examples.py
+```
 
-Prefer tests that exercise public behavior instead of private implementation details.
+Do not lower the configured coverage threshold to make a change pass.
 
-Use the existing test patterns:
+## Coding Guidelines
 
-- Reset singleton registries between tests when registering models, tools, agents, memory, cache, or providers.
-- Use local mock models and test doubles instead of real LLM API calls.
-- Use `tmp_path` for filesystem work.
-- Cover both success and failure paths for registries, orchestrator flows, diagnostics, provider setup, and execution policies.
-- Add regression tests for every bug fix.
-- Keep tests deterministic; avoid sleeps, network calls, wall-clock assumptions, and externally mutable state.
+- Keep public APIs explicit, typed where useful, and documented.
+- Prefer existing registries, decorators, schemas, and extension points over
+  parallel abstractions.
+- Preserve backward compatibility unless an issue explicitly approves a
+  breaking change.
+- Validate inputs at framework boundaries and raise LangDeep structured errors.
+- Keep provider-specific behavior inside provider adapters or provider
+  factories.
+- Do not add real network calls to tests.
+- Do not commit secrets, generated coverage files, build artifacts, or local
+  virtual environments.
 
-When adding a new test module for the custom runner, register it in `TEST_MODULES` inside `tests/run_all.py` in dependency order.
+## Documentation Guidelines
 
-## Code Style
+Documentation must match implemented behavior. When public behavior changes,
+update the relevant docs in the same pull request:
 
-LangDeep targets Python 3.9 and newer.
+- `README.md`
+- `README.zh-CN.md`
+- `docs/developer-guide.md`
+- examples under `examples/`
 
-Follow these expectations:
+README examples must be runnable. If an example requires external services,
+say so explicitly and provide a no-network alternative.
 
-- Keep public APIs explicit and documented.
-- Preserve backward compatibility unless the change is intentionally versioned and documented.
-- Prefer existing registries, decorators, schemas, and extension points over new parallel abstractions.
-- Validate inputs at framework boundaries and return structured diagnostics where possible.
-- Keep provider-specific behavior inside provider factories or provider modules.
-- Avoid hard-coded secrets, real API calls in tests, and environment-specific paths.
-- Use concise comments only when the code is not self-explanatory.
+## Pull Request Process
 
-## Documentation
-
-Documentation changes should be accurate for the current codebase. If you change public behavior, update the relevant docs in the same pull request:
-
-- `README.md` for user-facing English documentation.
-- `README.zh-CN.md` for Simplified Chinese documentation when the same public information changes.
-- `docs/developer-guide.md` for architecture, extension, testing, and operation details.
-- Examples or docstrings when APIs change.
-
-Do not document APIs that are not implemented. If a feature is experimental, state its current limitations clearly.
+1. Pick or open an issue with clear acceptance criteria.
+2. Keep the change scoped to that issue.
+3. Add or update tests for behavior changes.
+4. Update docs and examples for public API changes.
+5. Fill in the PR template completely.
+6. Wait for maintainer review before expanding scope.
 
 ## Commit Messages
 
-Use Conventional Commits:
+Use concise Conventional Commit-style messages:
 
-- `feat:` user-visible feature.
-- `fix:` bug fix.
-- `docs:` documentation-only change.
-- `test:` test-only change.
-- `refactor:` behavior-preserving code restructuring.
-- `perf:` performance improvement.
-- `chore:` tooling, packaging, or maintenance.
+- `fix:` bug fixes
+- `feat:` user-visible features
+- `docs:` documentation-only changes
+- `test:` tests
+- `refactor:` behavior-preserving restructuring
+- `chore:` maintenance
 
 Examples:
 
 ```text
-fix: validate agent tool references during startup
-docs: add multilingual readme
-test: cover runtime diagnostics warnings
+fix: normalize orchestrator invoke state input
+docs: add runnable quick start example
+test: cover public message helpers
 ```
 
-## Pull Request Checklist
+## Review Expectations
 
-Before opening a pull request, confirm that:
-
-- The PR has a clear title and describes the reason for the change.
-- The implementation is scoped to the issue or feature.
-- Public API changes are documented.
-- New behavior has tests.
-- The quality gate commands pass locally, or any skipped command is explained.
-- No secrets, credentials, generated caches, coverage files, or local build artifacts are included.
-- Backward compatibility risks are called out in the PR description.
-
-## Review Process
-
-Maintainers review for correctness, API consistency, test coverage, security implications, and documentation accuracy. Reviews may request changes before merge. Keep follow-up commits focused and avoid force-pushing unrelated rewrites during review unless needed to resolve conflicts or clean up history.
-
-## Release Notes
-
-Changes that affect users should include a short release-note style summary in the PR description. Mention migrations, behavior changes, new dependencies, security implications, or operational impact.
-
-## License
-
-By contributing to LangDeep, you agree that your contributions are licensed under the [MIT License](./LICENSE).
+Maintainers review for correctness, API consistency, test coverage, security
+impact, documentation accuracy, and long-term maintainability. Reviews may ask
+for smaller scope, additional tests, or clearer docs before merge.

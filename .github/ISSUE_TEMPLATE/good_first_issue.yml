@@ -1,0 +1,41 @@
+name: Good first issue
+description: A small scoped task suitable for new contributors.
+title: "[Good First Issue]: "
+labels: ["level: good-first-issue"]
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: 需要修改的文件
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: 推荐实现思路
+    validations:
+      required: false
+  - type: textarea
+    id: references
+    attributes:
+      label: 参考文档
+    validations:
+      required: false

@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a new capability or integration.
+title: "[Feature]: "
+labels: ["type: feature"]
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: What use case is blocked today?
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: What should LangDeep support?
+    validations:
+      required: true
+  - type: textarea
+    id: api
+    attributes:
+      label: 建议 API 或行为
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+    validations:
+      required: true

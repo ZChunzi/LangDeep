@@ -1,0 +1,43 @@
+name: Bug report
+description: Report reproducible incorrect behavior.
+title: "[Bug]: "
+labels: ["type: bug"]
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: What were you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 最小复现
+      description: Include code, commands, and traceback.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: LangDeep version or commit
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version and OS
+    validations:
+      required: true
