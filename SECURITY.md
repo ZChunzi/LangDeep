@@ -1,45 +1,62 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-Security fixes are handled on the latest released version. Older versions may
-receive fixes only when maintainers have capacity and the change is low risk.
+LangDeep is currently in active early development. Security fixes are applied to the latest `main` branch and the latest published release when practical. Older versions may receive fixes only when maintainers have capacity and the change is low risk.
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-Do not report security vulnerabilities through public GitHub issues.
+Please do not open public GitHub issues for security vulnerabilities.
 
-Report privately using the maintainer contact in `pyproject.toml`. Include:
+Report privately by email:
 
-- Affected version or commit SHA.
-- Minimal reproduction steps.
-- Impact assessment.
-- Whether the issue is already public.
-- Any suggested mitigation.
+```text
+rzhou990@gmail.com
+```
 
-Maintainers will acknowledge valid reports as soon as practical and coordinate
-fixes before public disclosure.
+Include as much detail as possible:
 
-## Security-Sensitive Areas
+- Affected version or commit SHA
+- Minimal reproduction steps
+- Impact assessment
+- Whether the issue is already public
+- Relevant logs or proof of concept
+- Suggested mitigation if available
+
+Maintainers will acknowledge valid reports as soon as practical and coordinate fixes before public disclosure.
+
+## Security-sensitive areas
 
 Extra care is required for changes involving:
 
-- Sandbox execution.
-- Tool execution policies and workspace boundaries.
-- Secrets handling.
-- Webhook and IM integrations.
-- Provider authentication and request routing.
-- Workflow plans accepted from external users.
-- File-system and subprocess access.
+- sandbox execution
+- tool execution policies and workspace boundaries
+- secrets handling
+- webhook and IM integrations
+- provider authentication and request routing
+- workflow plans accepted from external users
+- file-system and subprocess access
+- memory/cache backends that persist user data
+- generated examples that may encourage unsafe defaults
 
-## Sandbox Boundary
+## Sandbox boundary
 
-`SubprocessSandbox` is a convenience isolation layer for trusted or
-semi-trusted local tasks. It is not a complete boundary for hostile code. Use
-container, VM, or platform sandboxing for untrusted workloads.
+`SubprocessSandbox` is a convenience local execution helper for trusted or semi-trusted tasks. It is not a hardened security boundary for hostile code. Use container, VM, network, filesystem, and resource isolation for untrusted workloads.
 
-## Dependency Security
+## Secrets policy
 
-Keep provider SDKs and LangChain/LangGraph dependencies current in application
-deployments. Avoid adding new runtime dependencies unless they are necessary and
-actively maintained.
+Do not hard-code API keys or credentials in examples, tests, issues, or pull requests. Prefer environment variables or a dedicated secrets provider.
+
+## Dependency security
+
+Keep provider SDKs and LangChain/LangGraph dependencies current in application deployments. Avoid adding new runtime dependencies unless they are necessary and actively maintained.
+
+## Disclosure process
+
+After a valid vulnerability report is received, maintainers will:
+
+1. Confirm the issue.
+2. Assess impact and affected versions.
+3. Prepare a fix or mitigation.
+4. Credit the reporter if requested.
+5. Publish disclosure notes when appropriate.
