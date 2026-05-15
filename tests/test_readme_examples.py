@@ -1,8 +1,12 @@
 """Smoke tests for README examples that should run without external services."""
 
+import json
+from typing import Dict
+
 from langdeep import (
     AssistantMessage,
     FlowOrchestrator,
+    ResultMerger,
     UserMessage,
     agent,
     last_assistant_text,
@@ -63,3 +67,26 @@ def test_readme_quick_start_runs_without_langchain_core_imports():
         "Question: How is the weather in Beijing?\n"
         "Beijing: sunny, 25C"
     )
+
+
+def test_developer_guide_custom_result_merger_signature_runs():
+    class JsonMerger(ResultMerger):
+        def merge(self, user_request: str, agent_results: Dict[str, str]) -> str:
+            return json.dumps(
+                {
+                    "request": user_request,
+                    "results": agent_results,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+
+    payload = JsonMerger().merge(
+        "Summarize the research",
+        {"research_agent": "LangDeep supports custom mergers."},
+    )
+
+    assert json.loads(payload) == {
+        "request": "Summarize the research",
+        "results": {"research_agent": "LangDeep supports custom mergers."},
+    }
