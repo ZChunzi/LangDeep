@@ -137,6 +137,13 @@ result = orchestrator.invoke("北京天气怎么样？")
 print(last_assistant_text(result))
 ```
 
+运行后应看到类似输出：
+
+```text
+Question: 北京天气怎么样？
+Beijing: sunny, 25C
+```
+
 ---
 
 ## 🧠 核心概念
