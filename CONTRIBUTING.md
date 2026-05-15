@@ -1,34 +1,40 @@
 # Contributing to LangDeep
 
-LangDeep is an annotation-driven multi-agent workflow framework built on
-LangChain and LangGraph. Contributions should make the framework easier to use
-without weakening its extension points, runtime safety, or compatibility with
-the LangChain ecosystem.
+Thank you for contributing to LangDeep.
 
-## Good First Contribution Areas
+LangDeep is an annotation-driven multi-agent workflow framework built on LangChain and LangGraph. The project is in an early but active stage, so small, focused contributions are especially valuable.
+
+## Good first contribution areas
 
 Start with scoped tasks that have clear acceptance criteria:
 
-- Documentation corrections in `README.md`, `README.zh-CN.md`, or
-  `docs/developer-guide.md`.
-- Examples under `examples/` that run without paid external services.
-- Tests that cover public APIs such as `FlowOrchestrator`, decorators,
-  registries, memory, sandbox, tools, and provider adapters.
-- Small usability helpers that reduce boilerplate while preserving advanced
-  LangChain/LangGraph interoperability.
+- Documentation corrections in `README.md`, `README.zh-CN.md`, or `docs/developer-guide.md`.
+- Runnable examples under `examples/` that run without paid external services.
+- Tests for public APIs such as `FlowOrchestrator`, decorators, registries, memory, sandbox, tools, and provider adapters.
+- Small usability helpers that reduce boilerplate while preserving advanced LangChain/LangGraph interoperability.
 
-Large API changes, provider additions, new storage backends, or sandbox changes
-should start with an issue before implementation.
+Large API changes, provider additions, new storage backends, sandbox changes, or orchestration behavior changes should start with an issue before implementation.
 
-## Development Setup
+## Development setup
 
 ```bash
-git clone https://github.com/<your-user>/LangDeep.git
-cd LangDeep/LangDeep
+git clone https://github.com/ZChunzi/LangDeep.git
+cd LangDeep
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -U pip
-python -m pip install -e ".[dev]"
+python -m pip install --upgrade pip setuptools wheel build
+pip install -e ".[dev]"
+```
+
+On Windows PowerShell:
+
+```powershell
+git clone https://github.com/ZChunzi/LangDeep.git
+cd LangDeep
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip setuptools wheel build
+pip install -e ".[dev]"
 ```
 
 Provider-specific extras are optional:
@@ -38,53 +44,48 @@ python -m pip install -e ".[deepseek]"
 python -m pip install -e ".[all]"
 ```
 
-## Quality Gates
+## Local checks
 
-Run these before opening a pull request:
+Run the relevant checks before opening a pull request:
 
 ```bash
 python -m ruff check src tests
-python -m pytest --cov=src --cov-report=term-missing
+python -m pytest --ignore=tests/test_sandbox.py
 python -m compileall -q src tests
+python -m build --no-isolation
 ```
 
-Use targeted tests while iterating:
+If you change examples, also run:
 
 ```bash
-python -m pytest tests/test_orchestrator.py
-python -m pytest tests/test_readme_examples.py
+python -m ruff check src tests examples
+python -m compileall -q src tests examples
 ```
 
-Do not lower the configured coverage threshold to make a change pass.
+The subprocess sandbox tests may depend on local OS behavior and are excluded from the default CI smoke suite.
 
-## Coding Guidelines
+## Coding guidelines
 
 - Keep public APIs explicit, typed where useful, and documented.
-- Prefer existing registries, decorators, schemas, and extension points over
-  parallel abstractions.
-- Preserve backward compatibility unless an issue explicitly approves a
-  breaking change.
+- Prefer existing registries, decorators, schemas, and extension points over parallel abstractions.
+- Preserve backward compatibility unless an issue explicitly approves a breaking change.
 - Validate inputs at framework boundaries and raise LangDeep structured errors.
-- Keep provider-specific behavior inside provider adapters or provider
-  factories.
-- Do not add real network calls to tests.
-- Do not commit secrets, generated coverage files, build artifacts, or local
-  virtual environments.
+- Keep provider-specific behavior inside provider adapters or provider factories.
+- Do not add real network calls to unit tests.
+- Do not commit secrets, generated coverage files, build artifacts, or local virtual environments.
 
-## Documentation Guidelines
+## Documentation guidelines
 
-Documentation must match implemented behavior. When public behavior changes,
-update the relevant docs in the same pull request:
+Documentation must match implemented behavior. When public behavior changes, update the relevant docs in the same pull request:
 
 - `README.md`
 - `README.zh-CN.md`
 - `docs/developer-guide.md`
 - examples under `examples/`
 
-README examples must be runnable. If an example requires external services,
-say so explicitly and provide a no-network alternative.
+README examples must be runnable. If an example requires external services, say so explicitly and provide a no-network alternative.
 
-## Pull Request Process
+## Pull request process
 
 1. Pick or open an issue with clear acceptance criteria.
 2. Keep the change scoped to that issue.
@@ -93,7 +94,7 @@ say so explicitly and provide a no-network alternative.
 5. Fill in the PR template completely.
 6. Wait for maintainer review before expanding scope.
 
-## Commit Messages
+## Commit messages
 
 Use concise Conventional Commit-style messages:
 
@@ -102,6 +103,7 @@ Use concise Conventional Commit-style messages:
 - `docs:` documentation-only changes
 - `test:` tests
 - `refactor:` behavior-preserving restructuring
+- `ci:` CI and workflow changes
 - `chore:` maintenance
 
 Examples:
@@ -112,8 +114,12 @@ docs: add runnable quick start example
 test: cover public message helpers
 ```
 
-## Review Expectations
+## Security and privacy
 
-Maintainers review for correctness, API consistency, test coverage, security
-impact, documentation accuracy, and long-term maintainability. Reviews may ask
-for smaller scope, additional tests, or clearer docs before merge.
+- Do not include API keys, private logs, customer data, access tokens, or credentials in issues, PRs, tests, or examples.
+- Do not run untrusted code through the built-in subprocess sandbox in production.
+- Report security vulnerabilities privately. See `SECURITY.md`.
+
+## Review expectations
+
+Maintainers review for correctness, API consistency, test coverage, security impact, documentation accuracy, and long-term maintainability. Reviews may ask for smaller scope, additional tests, or clearer docs before merge.
