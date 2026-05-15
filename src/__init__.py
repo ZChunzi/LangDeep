@@ -79,7 +79,7 @@ from langdeep.messages import (
     user_message,
 )
 
-__version__ = "2.0.12"
+__version__ = "2.0.13"
 
 
 def register_provider(name: str, factory: Callable[[ModelConfig], BaseChatModel]) -> Callable[[ModelConfig], BaseChatModel]:
