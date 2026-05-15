@@ -9,7 +9,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from langdeep.core.registry.model_registry import (
-    model_registry, provider_registry, ModelRegistry,
+    model_registry, provider_registry, ModelRegistry, 
     ProviderRegistry, ModelConfig,
 )
 from langdeep.core.errors import ConfigurationError, ModelNotFoundError, ProviderNotFoundError
@@ -172,3 +172,48 @@ def test_provider_registry_reset_snapshot_and_duplicate_policy():
     assert provider_registry.list_providers() == []
     provider_registry.reset()
     assert "mock" in provider_registry.list_providers()
+
+
+def test_deepseek_provider_uses_adapter_by_default(monkeypatch):
+    class FakeDeepSeekChatModel:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(
+        "langdeep.core.adapters.deepseek.DeepSeekChatModel",
+        FakeDeepSeekChatModel,
+    )
+
+    model_registry.register(
+        "deepseek_plain",
+        ModelConfig(provider="deepseek", model_name="deepseek-chat"),
+    )
+
+    llm = model_registry.get_model("deepseek_plain")
+    assert isinstance(llm, FakeDeepSeekChatModel)
+    assert llm.kwargs["model"] == "deepseek-chat"
+    assert llm.kwargs["base_url"] == "https://api.deepseek.com"
+
+
+def test_deepseek_provider_keeps_thinking_mode_configuration(monkeypatch):
+    class FakeDeepSeekChatModel:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(
+        "langdeep.core.adapters.deepseek.DeepSeekChatModel",
+        FakeDeepSeekChatModel,
+    )
+
+    model_registry.register(
+        "deepseek_thinking",
+        ModelConfig(
+            provider="deepseek",
+            model_name="deepseek-chat",
+            extra_params={"extra_body": {"thinking": {"type": "enabled"}}},
+        ),
+    )
+
+    llm = model_registry.get_model("deepseek_thinking")
+    assert isinstance(llm, FakeDeepSeekChatModel)
+    assert llm.kwargs["extra_body"]["thinking"]["type"] == "enabled"

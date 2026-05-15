@@ -13,7 +13,7 @@
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
-**Project Status: Beta - v2.0.1**
+**Project Status: Beta - v2.0.7**
 
 The core API has entered its second major version and is suitable for controlled internal enterprise pilots. Critical production deployments should still complete provider, secret, audit, sandbox, persistence, and operations reviews before release.
 

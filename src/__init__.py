@@ -60,7 +60,7 @@ from langdeep.core.errors import (
 )
 from langdeep.core.logging import get_logger, set_trace_context, get_trace_id
 
-__version__ = "2.0.5"
+__version__ = "2.0.7"
 
 
 def register_provider(name: str, factory: Callable[[ModelConfig], BaseChatModel]) -> Callable[[ModelConfig], BaseChatModel]:

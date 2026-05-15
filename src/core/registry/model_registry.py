@@ -201,7 +201,7 @@ class ProviderRegistry:
 
     def _create_deepseek_model(self, config: ModelConfig) -> BaseChatModel:
         try:
-            from langchain_openai import ChatOpenAI as _ChatOpenAI
+            from ..adapters.deepseek import DeepSeekChatModel
         except ImportError:
             raise ProviderImportError(
                 "DeepSeek provider requires langchain-openai package",
@@ -222,15 +222,12 @@ class ProviderRegistry:
             kwargs["max_tokens"] = config.max_tokens
         kwargs.update(extra)  # extra_params take precedence
 
-        # Use DeepSeekChatModel when thinking mode is enabled in extra_params,
-        # otherwise fall back to plain ChatOpenAI for non-thinking usage.
         use_thinking = _detect_deepseek_thinking(extra)
-        if use_thinking:
-            from ..adapters.deepseek import DeepSeekChatModel
-            logger.info("DeepSeek thinking mode detected — using DeepSeekChatModel")
-            return DeepSeekChatModel(**kwargs)
-
-        return _ChatOpenAI(**kwargs)
+        logger.info(
+            "DeepSeek provider selected — using DeepSeekChatModel",
+            extra={"thinking_mode": use_thinking},
+        )
+        return DeepSeekChatModel(**kwargs)
 
 
 def _detect_deepseek_thinking(extra_params: Dict[str, Any]) -> bool:
