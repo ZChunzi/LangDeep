@@ -1,0 +1,39 @@
+name: Documentation improvement
+description: Report missing, unclear, or outdated documentation
+title: "docs: "
+labels: ["documentation", "needs-triage"]
+body:
+  - type: textarea
+    id: location
+    attributes:
+      label: Location / 文档位置
+      description: Which file, page, or section should be improved?
+      placeholder: "README.md, README.zh-CN.md, docs/developer-guide.md, examples/..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / 问题
+      description: What is unclear, missing, or outdated?
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement / 修改建议
+    validations:
+      required: true
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Audience / 面向对象
+      options:
+        - new users
+        - contributors
+        - maintainers
+        - enterprise users
+        - other
