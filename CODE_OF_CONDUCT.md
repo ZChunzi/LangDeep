@@ -1,31 +1,49 @@
-# Code of Conduct
+# Contributor Covenant Code of Conduct
 
-LangDeep contributors and maintainers are expected to keep project spaces
-respectful, constructive, and focused on technical progress.
+## Our pledge
 
-## Expected Behavior
+We as members, contributors, and maintainers pledge to make participation in the LangDeep community a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, caste, color, religion, or sexual identity and orientation.
 
-- Be respectful and professional.
-- Discuss code, behavior, evidence, and tradeoffs.
-- Assume good intent when feedback is incomplete.
-- Keep reviews specific and actionable.
-- Respect maintainer decisions on project scope and release quality.
+We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.
 
-## Unacceptable Behavior
+## Our standards
 
-- Harassment, threats, or personal attacks.
-- Discriminatory language or conduct.
-- Deliberate disruption of issues, PRs, or discussions.
-- Publishing private security details before coordinated disclosure.
-- Sharing secrets, credentials, or private user data.
+Examples of behavior that contributes to a positive environment include:
+
+- Demonstrating empathy and kindness toward other people
+- Being respectful of differing opinions, viewpoints, and experiences
+- Giving and gracefully accepting constructive feedback
+- Accepting responsibility and apologizing to those affected by our mistakes
+- Focusing on what is best for the overall community
+
+Examples of unacceptable behavior include:
+
+- The use of sexualized language or imagery, and sexual attention or advances
+- Trolling, insulting or derogatory comments, and personal or political attacks
+- Public or private harassment
+- Publishing others' private information without explicit permission
+- Other conduct which could reasonably be considered inappropriate in a professional setting
+
+## Enforcement responsibilities
+
+Project maintainers are responsible for clarifying and enforcing standards of acceptable behavior and will take appropriate and fair corrective action in response to behavior that they deem inappropriate, threatening, offensive, or harmful.
+
+Maintainers have the right and responsibility to remove, edit, or reject comments, commits, code, wiki edits, issues, pull requests, and other contributions that are not aligned with this Code of Conduct.
+
+## Scope
+
+This Code of Conduct applies within all project spaces, including GitHub issues, pull requests, discussions, reviews, and community channels. It also applies when an individual is officially representing the project in public spaces.
 
 ## Enforcement
 
-Maintainers may edit, hide, lock, or remove comments and may restrict
-participation for repeated or severe violations. Security or safety concerns may
-be handled privately.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the maintainers at:
 
-## Reporting
+```text
+rzhou990@gmail.com
+```
 
-Report conduct concerns privately to the maintainer contact listed in
-`pyproject.toml`. Include links, screenshots, or context when possible.
+All complaints will be reviewed and investigated promptly and fairly.
+
+## Attribution
+
+This Code of Conduct is adapted from the Contributor Covenant, version 2.1.
