@@ -367,6 +367,28 @@ class FlowOrchestrator:
             template_name=template_name,
         )
 
+    def chat_text(
+        self,
+        user_input: str,
+        *,
+        session_id: Optional[str] = None,
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> str:
+        """Run ``chat()`` and return the last assistant text."""
+        from langdeep.messages import last_assistant_text
+
+        return last_assistant_text(
+            self.chat(
+                user_input,
+                session_id=session_id,
+                context=context,
+                workflow_plan=workflow_plan,
+                template_name=template_name,
+            )
+        )
+
     async def achat(
         self,
         user_input: str,
@@ -385,6 +407,28 @@ class FlowOrchestrator:
             context=chat_context,
             workflow_plan=workflow_plan,
             template_name=template_name,
+        )
+
+    async def achat_text(
+        self,
+        user_input: str,
+        *,
+        session_id: Optional[str] = None,
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> str:
+        """Run ``achat()`` and return the last assistant text."""
+        from langdeep.messages import last_assistant_text
+
+        return last_assistant_text(
+            await self.achat(
+                user_input,
+                session_id=session_id,
+                context=context,
+                workflow_plan=workflow_plan,
+                template_name=template_name,
+            )
         )
 
     def invoke_messages(

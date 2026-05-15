@@ -66,8 +66,20 @@ from langdeep.core.errors import (
     OrchestrationError,
 )
 from langdeep.core.logging import get_logger, set_trace_context, get_trace_id
+from langdeep.messages import (
+    AssistantMessage,
+    Message,
+    UserMessage,
+    assistant_message,
+    last_assistant_text,
+    last_user_text,
+    message_text,
+    system_message,
+    tool_message,
+    user_message,
+)
 
-__version__ = "2.0.10"
+__version__ = "2.0.11"
 
 
 def register_provider(name: str, factory: Callable[[ModelConfig], BaseChatModel]) -> Callable[[ModelConfig], BaseChatModel]:
@@ -105,6 +117,16 @@ __all__ = [
     "provider",
     "register_provider",
     "ModelConfig",
+    "AssistantMessage",
+    "Message",
+    "UserMessage",
+    "assistant_message",
+    "last_assistant_text",
+    "last_user_text",
+    "message_text",
+    "system_message",
+    "tool_message",
+    "user_message",
     "memory",
     "cache",
     "im_channel",

@@ -1,6 +1,6 @@
 # LangDeep Developer Guide
 
-Version: `2.0.10`
+Version: `2.0.11`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
@@ -69,6 +69,8 @@ The top-level `langdeep` package exports:
 - `register_tool`, `regist_tool`, `agent`
 - `memory`, `cache`, `im_channel`
 - `ModelConfig`
+- `Message`, `UserMessage`, `AssistantMessage`, `user_message`,
+  `assistant_message`, `message_text`, `last_assistant_text`
 - `WorkflowPlan`, `WorkflowTask`, `validate_workflow_plan`
 - `HealthChecker`, `MetricsCollector`
 - `DiagnosticIssue`, `RuntimeDiagnostics`, `RuntimeValidator`, `validate_runtime`
@@ -81,7 +83,7 @@ Current package version is exposed as:
 ```python
 import langdeep
 
-assert langdeep.__version__ == "2.0.10"
+assert langdeep.__version__ == "2.0.11"
 ```
 
 ## 5. Registries
@@ -276,8 +278,7 @@ The executor can place tasks into a `waiting_confirmation` status when a task re
 Register agents with `@agent`:
 
 ```python
-from langchain_core.messages import AIMessage, HumanMessage
-from langdeep import agent
+from langdeep import AssistantMessage, UserMessage, agent
 
 
 @agent(
@@ -293,10 +294,10 @@ def support_agent():
         def invoke(self, state):
             question = ""
             for message in reversed(state.get("messages", [])):
-                if isinstance(message, HumanMessage):
+                if isinstance(message, UserMessage):
                     question = str(message.content)
                     break
-            return {"messages": [AIMessage(content=f"Support answer for: {question}")]}
+            return {"messages": [AssistantMessage(content=f"Support answer for: {question}")]}
 
         async def ainvoke(self, state):
             return self.invoke(state)
@@ -384,13 +385,14 @@ Constructor arguments:
 Public methods:
 
 ```python
-from langchain_core.messages import HumanMessage
+from langdeep import user_message
 
 result = orchestrator.invoke("Summarize the incident")
 result = await orchestrator.ainvoke("Summarize the incident")
 result = orchestrator.chat("Summarize the incident", session_id="cli")
-result = orchestrator.invoke_messages([HumanMessage(content="Summarize the incident")])
-result = orchestrator.invoke_state({"messages": [HumanMessage(content="Summarize the incident")]})
+text = orchestrator.chat_text("Summarize the incident", session_id="cli")
+result = orchestrator.invoke_messages([user_message("Summarize the incident")])
+result = orchestrator.invoke_state({"messages": [user_message("Summarize the incident")]})
 
 async for chunk in orchestrator.astream("Summarize the incident"):
     print(chunk)
@@ -749,7 +751,7 @@ Health checks:
 from langdeep import HealthChecker
 
 
-status = HealthChecker(version="2.0.10").check_all()
+status = HealthChecker(version="2.0.11").check_all()
 print(status.status)
 print(status.checks)
 ```
@@ -958,8 +960,7 @@ Recommended minimum production controls:
 Use this as a no-network smoke test for a fresh checkout:
 
 ```python
-from langchain_core.messages import AIMessage
-from langdeep import FlowOrchestrator, agent, model, validate_runtime
+from langdeep import AssistantMessage, FlowOrchestrator, agent, last_assistant_text, model, validate_runtime
 
 
 @model(name="mock_chat", provider="mock", model_name="mock-chat")
@@ -971,7 +972,7 @@ def mock_chat():
 def echo():
     class Echo:
         def invoke(self, state):
-            return {"messages": [AIMessage(content="ok")]}
+            return {"messages": [AssistantMessage(content="ok")]}
 
         async def ainvoke(self, state):
             return self.invoke(state)
@@ -981,5 +982,5 @@ def echo():
 
 validate_runtime(instantiate_agents=True).raise_for_errors()
 result = FlowOrchestrator(supervisor_model="mock_chat", enable_checkpoint=False).invoke("echo")
-assert any(isinstance(message, AIMessage) for message in result["messages"])
+assert last_assistant_text(result) == "ok"
 ```

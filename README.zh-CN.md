@@ -13,7 +13,7 @@
 
 **语言：** [English](README.md) | 简体中文
 
-**项目状态：Beta - v2.0.10**
+**项目状态：Beta - v2.0.11**
 
 核心 API 已进入第二个大版本，适合企业内部受控试点。关键生产环境仍应先完成模型供应商、密钥、审计、沙箱、持久化和运维策略评审。
 
@@ -78,9 +78,16 @@ pip install -e ".[dev]"
 下面示例使用内置 `mock` provider，可以直接在本地运行。注意：`@register_tool` 或 `@regist_tool` 包装的函数必须有 docstring，因为 LangChain 在创建 Tool 时会校验描述。
 
 ```python
-from langchain_core.messages import AIMessage, HumanMessage
-
-from langdeep import FlowOrchestrator, agent, model, register_tool, validate_runtime
+from langdeep import (
+    AssistantMessage,
+    FlowOrchestrator,
+    UserMessage,
+    agent,
+    last_assistant_text,
+    model,
+    register_tool,
+    validate_runtime,
+)
 
 
 @model(name="mock_chat", provider="mock", model_name="mock-chat")
@@ -106,11 +113,11 @@ def weather_agent():
         def invoke(self, state):
             question = ""
             for message in reversed(state.get("messages", [])):
-                if isinstance(message, HumanMessage):
+                if isinstance(message, UserMessage):
                     question = str(message.content)
                     break
             answer = f"Question: {question}\n{get_weather('Beijing')}"
-            return {"messages": [AIMessage(content=answer)]}
+            return {"messages": [AssistantMessage(content=answer)]}
 
         async def ainvoke(self, state):
             return self.invoke(state)
@@ -127,11 +134,7 @@ orchestrator = FlowOrchestrator(
 )
 
 result = orchestrator.invoke("北京天气怎么样？")
-
-for message in reversed(result["messages"]):
-    if isinstance(message, AIMessage) and message.content:
-        print(message.content)
-        break
+print(last_assistant_text(result))
 ```
 
 ---
@@ -161,6 +164,7 @@ LangDeep 运行时围绕一组进程内 singleton 注册表工作。装饰器在
 - `ainvoke(user_input, context=None, workflow_plan=None, template_name=None)`
 - `astream(user_input, context=None, **kwargs)`
 - `chat(user_input, session_id=None, context=None, ...)`
+- `chat_text(user_input, session_id=None, context=None, ...)`
 - `invoke_messages(messages, context=None, ...)`
 - `invoke_state(state, context=None)`
 - `health()`
@@ -168,7 +172,7 @@ LangDeep 运行时围绕一组进程内 singleton 注册表工作。装饰器在
 - `graph`
 
 `invoke()` 支持字符串、单条 LangChain message、LangChain message 列表，
-也支持 `{"messages": [HumanMessage(content="hi")]}` 这类 LangGraph 风格
+也支持 `{"messages": [user_message("hi")]}` 这类 LangGraph 风格
 state dict。多轮对话推荐使用 `chat(..., session_id=...)`，并配合已注册的
 memory backend 自动管理历史。
 
@@ -433,8 +437,7 @@ def search_docs(query: str) -> str:
 ### 注册 Agent
 
 ```python
-from langchain_core.messages import AIMessage
-from langdeep import agent
+from langdeep import AssistantMessage, agent
 
 
 @agent(
@@ -448,7 +451,7 @@ from langdeep import agent
 def support_agent():
     class SupportAgent:
         def invoke(self, state):
-            return {"messages": [AIMessage(content="Support response")]}
+            return {"messages": [AssistantMessage(content="Support response")]}
 
         async def ainvoke(self, state):
             return self.invoke(state)

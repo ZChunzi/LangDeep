@@ -13,7 +13,7 @@
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
-**Project Status: Beta - v2.0.10**
+**Project Status: Beta - v2.0.11**
 
 The core API has entered its second major version and is suitable for controlled internal enterprise pilots. Critical production deployments should still complete provider, secret, audit, sandbox, persistence, and operations reviews before release.
 
@@ -78,9 +78,16 @@ pip install -e ".[dev]"
 The example below uses the built-in `mock` provider and can run locally without external credentials. Note: functions wrapped by `@register_tool` or `@regist_tool` must have a docstring because LangChain validates tool descriptions when creating tools.
 
 ```python
-from langchain_core.messages import AIMessage, HumanMessage
-
-from langdeep import FlowOrchestrator, agent, model, register_tool, validate_runtime
+from langdeep import (
+    AssistantMessage,
+    FlowOrchestrator,
+    UserMessage,
+    agent,
+    last_assistant_text,
+    model,
+    register_tool,
+    validate_runtime,
+)
 
 
 @model(name="mock_chat", provider="mock", model_name="mock-chat")
@@ -106,11 +113,11 @@ def weather_agent():
         def invoke(self, state):
             question = ""
             for message in reversed(state.get("messages", [])):
-                if isinstance(message, HumanMessage):
+                if isinstance(message, UserMessage):
                     question = str(message.content)
                     break
             answer = f"Question: {question}\n{get_weather('Beijing')}"
-            return {"messages": [AIMessage(content=answer)]}
+            return {"messages": [AssistantMessage(content=answer)]}
 
         async def ainvoke(self, state):
             return self.invoke(state)
@@ -127,11 +134,7 @@ orchestrator = FlowOrchestrator(
 )
 
 result = orchestrator.invoke("How is the weather in Beijing?")
-
-for message in reversed(result["messages"]):
-    if isinstance(message, AIMessage) and message.content:
-        print(message.content)
-        break
+print(last_assistant_text(result))
 ```
 
 ---
@@ -161,6 +164,7 @@ LangDeep runtime is centered around a set of in-process singleton registries. De
 - `ainvoke(user_input, context=None, workflow_plan=None, template_name=None)`
 - `astream(user_input, context=None, **kwargs)`
 - `chat(user_input, session_id=None, context=None, ...)`
+- `chat_text(user_input, session_id=None, context=None, ...)`
 - `invoke_messages(messages, context=None, ...)`
 - `invoke_state(state, context=None)`
 - `health()`
@@ -169,7 +173,7 @@ LangDeep runtime is centered around a set of in-process singleton registries. De
 
 `invoke()` accepts plain strings, a single LangChain message, a sequence of
 LangChain messages, or a LangGraph-style state dict such as
-`{"messages": [HumanMessage(content="hi")]}`. Use `chat(..., session_id=...)`
+`{"messages": [user_message("hi")]}`. Use `chat(..., session_id=...)`
 for multi-turn conversations backed by a registered memory backend.
 
 There is no public `run()` method. Use `invoke()` or `chat()` instead.
@@ -432,8 +436,7 @@ def search_docs(query: str) -> str:
 ### Register an agent
 
 ```python
-from langchain_core.messages import AIMessage
-from langdeep import agent
+from langdeep import AssistantMessage, agent
 
 
 @agent(
@@ -447,7 +450,7 @@ from langdeep import agent
 def support_agent():
     class SupportAgent:
         def invoke(self, state):
-            return {"messages": [AIMessage(content="Support response")]}
+            return {"messages": [AssistantMessage(content="Support response")]}
 
         async def ainvoke(self, state):
             return self.invoke(state)

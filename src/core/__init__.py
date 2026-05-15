@@ -67,9 +67,31 @@ from .secrets import (
 from .observability import HealthStatus, HealthChecker, MetricsCollector
 from .diagnostics import DiagnosticIssue, RuntimeDiagnostics, RuntimeValidator, validate_runtime
 from .tools import PolicyAwareTool, ToolAuditLog, ToolExecutionPolicy, ToolExecutionRecord
+from langdeep.messages import (
+    AssistantMessage,
+    Message,
+    UserMessage,
+    assistant_message,
+    last_assistant_text,
+    last_user_text,
+    message_text,
+    system_message,
+    tool_message,
+    user_message,
+)
 
 __all__ = [
     "ExecutionPolicy",
+    "AssistantMessage",
+    "Message",
+    "UserMessage",
+    "assistant_message",
+    "last_assistant_text",
+    "last_user_text",
+    "message_text",
+    "system_message",
+    "tool_message",
+    "user_message",
     "BaseAgentBuilder",
     "ReActAgentBuilder",
     "AgentBuilderRegistry",
