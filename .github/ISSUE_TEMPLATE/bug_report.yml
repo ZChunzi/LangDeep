@@ -1,43 +1,60 @@
 name: Bug report
-description: Report reproducible incorrect behavior.
-title: "[Bug]: "
-labels: ["type: bug"]
+description: Report a reproducible bug in LangDeep
+title: "bug: "
+labels: ["bug", "needs-triage"]
 body:
   - type: textarea
-    id: background
+    id: summary
     attributes:
-      label: 背景
-      description: What were you trying to do?
+      label: Summary / 问题概述
+      description: What happened?
     validations:
       required: true
-  - type: textarea
-    id: expected
-    attributes:
-      label: 期望行为
-    validations:
-      required: true
-  - type: textarea
-    id: actual
-    attributes:
-      label: 实际行为
-    validations:
-      required: true
+
   - type: textarea
     id: reproduce
     attributes:
-      label: 最小复现
-      description: Include code, commands, and traceback.
+      label: Steps to reproduce / 复现步骤
+      description: Provide a minimal reproducible example.
+      placeholder: |
+        1. Install ...
+        2. Run ...
+        3. See error ...
     validations:
       required: true
-  - type: input
-    id: version
+
+  - type: textarea
+    id: expected
     attributes:
-      label: LangDeep version or commit
+      label: Expected behavior / 期望行为
     validations:
       required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 实际行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traceback
+      render: text
+
   - type: input
     id: python
     attributes:
       label: Python version and OS
+      placeholder: "Python 3.12.4 / Ubuntu 22.04"
+    validations:
+      required: true
+
+  - type: input
+    id: langdeep
+    attributes:
+      label: LangDeep version or commit
+      placeholder: "2.0.12 / commit sha"
     validations:
       required: true

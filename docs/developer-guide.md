@@ -571,13 +571,22 @@ LangDeep exposes abstract extension points:
 Custom result merger:
 
 ```python
-from typing import Any, Dict, List
+import json
+from typing import Dict
+
 from langdeep import ResultMerger
 
 
 class JsonMerger(ResultMerger):
-    def merge(self, results: Dict[str, Any], messages: List[Any]) -> str:
-        return str(results)
+    def merge(self, user_request: str, agent_results: Dict[str, str]) -> str:
+        return json.dumps(
+            {
+                "request": user_request,
+                "results": agent_results,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
 ```
 
 Inject it:

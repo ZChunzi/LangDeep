@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip setuptools wheel build
+          python -m pip install -e ".[dev]"
+
+      - name: Ruff
+        run: |
+          if [ -d examples ]; then
+            python -m ruff check src tests examples
+          else
+            python -m ruff check src tests
+          fi
+
+      - name: Pytest
+        run: |
+          python -m pytest --ignore=tests/test_sandbox.py
+
+      - name: Compile
+        run: |
+          if [ -d examples ]; then
+            python -m compileall -q src tests examples
+          else
+            python -m compileall -q src tests
+          fi
+
+      - name: Build
+        run: |
+          python -m build --no-isolation
