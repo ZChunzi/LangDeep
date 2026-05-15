@@ -13,7 +13,7 @@
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
-**Project Status: Beta - v2.0.9**
+**Project Status: Beta - v2.0.10**
 
 The core API has entered its second major version and is suitable for controlled internal enterprise pilots. Critical production deployments should still complete provider, secret, audit, sandbox, persistence, and operations reviews before release.
 
@@ -160,11 +160,19 @@ LangDeep runtime is centered around a set of in-process singleton registries. De
 - `invoke(user_input, context=None, workflow_plan=None, template_name=None)`
 - `ainvoke(user_input, context=None, workflow_plan=None, template_name=None)`
 - `astream(user_input, context=None, **kwargs)`
+- `chat(user_input, session_id=None, context=None, ...)`
+- `invoke_messages(messages, context=None, ...)`
+- `invoke_state(state, context=None)`
 - `health()`
 - `get_metrics()`
 - `graph`
 
-v2.0.0 does not expose a public `run()` method. Use `invoke()` instead.
+`invoke()` accepts plain strings, a single LangChain message, a sequence of
+LangChain messages, or a LangGraph-style state dict such as
+`{"messages": [HumanMessage(content="hi")]}`. Use `chat(..., session_id=...)`
+for multi-turn conversations backed by a registered memory backend.
+
+There is no public `run()` method. Use `invoke()` or `chat()` instead.
 
 ### Agent runtime contract
 

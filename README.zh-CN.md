@@ -13,7 +13,7 @@
 
 **语言：** [English](README.md) | 简体中文
 
-**项目状态：Beta - v2.0.9**
+**项目状态：Beta - v2.0.10**
 
 核心 API 已进入第二个大版本，适合企业内部受控试点。关键生产环境仍应先完成模型供应商、密钥、审计、沙箱、持久化和运维策略评审。
 
@@ -160,11 +160,19 @@ LangDeep 运行时围绕一组进程内 singleton 注册表工作。装饰器在
 - `invoke(user_input, context=None, workflow_plan=None, template_name=None)`
 - `ainvoke(user_input, context=None, workflow_plan=None, template_name=None)`
 - `astream(user_input, context=None, **kwargs)`
+- `chat(user_input, session_id=None, context=None, ...)`
+- `invoke_messages(messages, context=None, ...)`
+- `invoke_state(state, context=None)`
 - `health()`
 - `get_metrics()`
 - `graph`
 
-v2.0.0 没有公开 `run()` 方法，请使用 `invoke()`。
+`invoke()` 支持字符串、单条 LangChain message、LangChain message 列表，
+也支持 `{"messages": [HumanMessage(content="hi")]}` 这类 LangGraph 风格
+state dict。多轮对话推荐使用 `chat(..., session_id=...)`，并配合已注册的
+memory backend 自动管理历史。
+
+没有公开 `run()` 方法，请使用 `invoke()` 或 `chat()`。
 
 ### Agent 运行契约
 

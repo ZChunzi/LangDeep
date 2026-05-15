@@ -1,6 +1,6 @@
 # LangDeep Developer Guide
 
-Version: `2.0.9`
+Version: `2.0.10`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
@@ -81,7 +81,7 @@ Current package version is exposed as:
 ```python
 import langdeep
 
-assert langdeep.__version__ == "2.0.9"
+assert langdeep.__version__ == "2.0.10"
 ```
 
 ## 5. Registries
@@ -384,8 +384,13 @@ Constructor arguments:
 Public methods:
 
 ```python
+from langchain_core.messages import HumanMessage
+
 result = orchestrator.invoke("Summarize the incident")
 result = await orchestrator.ainvoke("Summarize the incident")
+result = orchestrator.chat("Summarize the incident", session_id="cli")
+result = orchestrator.invoke_messages([HumanMessage(content="Summarize the incident")])
+result = orchestrator.invoke_state({"messages": [HumanMessage(content="Summarize the incident")]})
 
 async for chunk in orchestrator.astream("Summarize the incident"):
     print(chunk)
@@ -396,6 +401,19 @@ graph = orchestrator.graph
 ```
 
 There is no public `run()` method in v2.0.0. Use `invoke()`.
+
+`invoke()` is intentionally permissive for framework interoperability:
+
+- `str`: normal request text.
+- `BaseMessage`: one LangChain message.
+- `Sequence[BaseMessage]`: explicit message history managed by the caller.
+- `{"messages": [...]}`: LangGraph-style state input.
+- `{"input": "..."}`, `{"user_input": "..."}`, or `{"content": "..."}`:
+  dictionary wrappers from generated code or HTTP adapters.
+
+For multi-turn applications, prefer `chat(user_input, session_id=...)` with a
+registered memory backend. For advanced graph integration, prefer
+`invoke_state(...)` so the call site states that it is passing graph state.
 
 ## 11. Graph Architecture
 
@@ -731,7 +749,7 @@ Health checks:
 from langdeep import HealthChecker
 
 
-status = HealthChecker(version="2.0.9").check_all()
+status = HealthChecker(version="2.0.10").check_all()
 print(status.status)
 print(status.checks)
 ```

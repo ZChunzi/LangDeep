@@ -41,6 +41,35 @@ def test_invoke_basic():
     assert len(ans) > 5
 
 
+def test_invoke_accepts_langgraph_style_messages_state():
+    o = orch()
+    result = o.invoke({"messages": [HumanMessage(content="你好")]})
+
+    assert "messages" in result
+    assert any(isinstance(message, HumanMessage) for message in result["messages"])
+    assert len(_last_ai(result["messages"])) > 5
+
+
+def test_invoke_accepts_message_sequence():
+    o = orch()
+    result = o.invoke_messages([HumanMessage(content="你好")])
+
+    assert "messages" in result
+    assert len(_last_ai(result["messages"])) > 5
+
+
+def test_invoke_accepts_single_message_with_memory_context():
+    backend = InMemoryBackend()
+    memory_registry.register("single_message_mem", lambda: backend)
+    o = orch(memory="single_message_mem")
+
+    result = o.invoke(HumanMessage(content="你好"), context={"session_id": "single"})
+
+    assert "messages" in result
+    stored = backend.load_messages("single")
+    assert any(isinstance(message, HumanMessage) and message.content == "你好" for message in stored)
+
+
 def test_invoke_with_context():
     o = orch()
     result = o.invoke("test", context={"session": "abc"})
@@ -120,6 +149,51 @@ def test_invoke_loads_and_stores_memory_by_session_id():
     assert any(message.content == "humans=2" for message in stored if isinstance(message, AIMessage))
 
 
+def test_chat_uses_session_memory_without_context_boilerplate():
+    backend = InMemoryBackend()
+    memory_registry.register("chat_mem", lambda: backend)
+
+    def create_memory_agent():
+        class MemoryAgent:
+            def invoke(self, state):
+                human_count = sum(
+                    1 for message in state.get("messages", [])
+                    if isinstance(message, HumanMessage)
+                )
+                return {"messages": [AIMessage(content=f"humans={human_count}")]}
+
+        return MemoryAgent()
+
+    agent_registry.register(
+        "chat_memory_agent",
+        create_memory_agent,
+        AgentMetadata(
+            name="chat_memory_agent",
+            description="Counts human messages in session memory",
+            routing_keywords=["chatmem"],
+            model_name="gpt4o",
+        ),
+    )
+
+    o = orch(memory="chat_mem")
+
+    first = o.chat("chatmem first", session_id="cli")
+    second = o.chat("chatmem second", session_id="cli")
+
+    assert _last_ai(first["messages"]) == "humans=1"
+    assert _last_ai(second["messages"]) == "humans=2"
+
+
+def test_invoke_dict_without_supported_keys_has_clear_error():
+    o = orch()
+
+    try:
+        o.invoke({"unexpected": "value"})
+        assert False, "Should reject unsupported dict input"
+    except Exception as exc:
+        assert "without 'messages', 'input', 'user_input', or 'content'" in str(exc)
+
+
 def test_invoke_updates_process_snapshot_by_process_id():
     process_manager = ProcessManager()
     process = process_manager.create("chat")
@@ -179,6 +253,16 @@ def test_ainvoke():
         return result
     r = asyncio.run(run())
     assert r is not None
+
+
+def test_ainvoke_accepts_langgraph_style_messages_state():
+    o = orch()
+
+    async def run():
+        return await o.ainvoke({"messages": [HumanMessage(content="你好")]})
+
+    result = asyncio.run(run())
+    assert len(_last_ai(result["messages"])) > 5
 
 
 def test_ainvoke_prefers_graph_async_api():

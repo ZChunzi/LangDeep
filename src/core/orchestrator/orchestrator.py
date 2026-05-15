@@ -221,18 +221,26 @@ class FlowOrchestrator:
 
     def invoke(
         self,
-        user_input: str,
+        user_input: Any,
         context: Optional[Dict] = None,
         workflow_plan: Optional[List[Dict]] = None,
         template_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Execute the workflow synchronously and return the final state."""
-        initial = self._initial_state(user_input, context, workflow_plan, template_name)
+        """Execute the workflow synchronously and return the final state.
+
+        Accepted inputs:
+        - ``str``: normal chat/workflow request.
+        - ``BaseMessage``: a single LangChain message.
+        - ``Sequence[BaseMessage]``: explicit conversation history.
+        - ``{"messages": [...]}``: LangGraph-style state input.
+        """
+        initial = self._prepare_initial_state(user_input, context, workflow_plan, template_name)
+        input_preview = _input_preview(user_input)
         trace_id = set_trace_context()
         started = time.monotonic()
         status = "success"
         self._metrics.counter("orchestrator.invocations", tags={"mode": "sync"})
-        logger.info("Orchestrator invoke start", extra={"input_preview": user_input[:120]})
+        logger.info("Orchestrator invoke start", extra={"input_preview": input_preview})
         try:
             result = self._graph.invoke(initial)
             result = self._after_execution(result)
@@ -244,7 +252,7 @@ class FlowOrchestrator:
             logger.error("Orchestrator invoke failed", extra={"error": str(exc)}, exc_info=True)
             raise OrchestrationError(
                 "Workflow execution failed",
-                context={"user_input": user_input[:200], "trace_id": trace_id},
+                context={"user_input": input_preview[:200], "trace_id": trace_id},
                 cause=exc,
             ) from exc
         finally:
@@ -253,18 +261,19 @@ class FlowOrchestrator:
 
     async def ainvoke(
         self,
-        user_input: str,
+        user_input: Any,
         context: Optional[Dict] = None,
         workflow_plan: Optional[List[Dict]] = None,
         template_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute the workflow asynchronously and return the final state."""
-        initial = self._initial_state(user_input, context, workflow_plan, template_name)
+        initial = self._prepare_initial_state(user_input, context, workflow_plan, template_name)
+        input_preview = _input_preview(user_input)
         trace_id = set_trace_context()
         started = time.monotonic()
         status = "success"
         self._metrics.counter("orchestrator.invocations", tags={"mode": "async"})
-        logger.info("Orchestrator ainvoke start", extra={"input_preview": user_input[:120]})
+        logger.info("Orchestrator ainvoke start", extra={"input_preview": input_preview})
         try:
             graph_ainvoke = getattr(self._graph, "ainvoke", None)
             if callable(graph_ainvoke) and _should_use_native_async(self._graph):
@@ -282,26 +291,27 @@ class FlowOrchestrator:
             logger.error("Orchestrator ainvoke failed", extra={"error": str(exc)}, exc_info=True)
             raise OrchestrationError(
                 "Workflow execution failed",
-                context={"user_input": user_input[:200], "trace_id": trace_id},
+                context={"user_input": input_preview[:200], "trace_id": trace_id},
                 cause=exc,
             ) from exc
         finally:
             self._record_orchestrator_duration(started, mode="async", status=status)
             clear_trace_context()
 
-    async def astream(self, user_input: str, context: Optional[Dict] = None, **kwargs):
+    async def astream(self, user_input: Any, context: Optional[Dict] = None, **kwargs):
         """Execute the workflow as a stream, yielding each node's output."""
-        initial = self._initial_state(
+        initial = self._prepare_initial_state(
             user_input, context,
             workflow_plan=kwargs.pop("workflow_plan", None),
             template_name=kwargs.pop("template_name", None),
         )
+        input_preview = _input_preview(user_input)
         set_trace_context()
         started = time.monotonic()
         status = "success"
         chunk_count = 0
         self._metrics.counter("orchestrator.streams", tags={"mode": "async"})
-        logger.info("Orchestrator astream start", extra={"input_preview": user_input[:120]})
+        logger.info("Orchestrator astream start", extra={"input_preview": input_preview})
         try:
             graph_astream = getattr(self._graph, "astream", None)
             if callable(graph_astream) and _should_use_native_async(self._graph):
@@ -332,6 +342,90 @@ class FlowOrchestrator:
             )
             self._record_orchestrator_duration(started, mode="stream", status=status)
             clear_trace_context()
+
+    def chat(
+        self,
+        user_input: str,
+        *,
+        session_id: Optional[str] = None,
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Convenience API for multi-turn chat.
+
+        When ``session_id`` is supplied and a memory backend is configured,
+        LangDeep loads and stores conversation history automatically.
+        """
+        chat_context = dict(context or {})
+        if session_id is not None:
+            chat_context["session_id"] = session_id
+        return self.invoke(
+            user_input,
+            context=chat_context,
+            workflow_plan=workflow_plan,
+            template_name=template_name,
+        )
+
+    async def achat(
+        self,
+        user_input: str,
+        *,
+        session_id: Optional[str] = None,
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Async convenience API for multi-turn chat."""
+        chat_context = dict(context or {})
+        if session_id is not None:
+            chat_context["session_id"] = session_id
+        return await self.ainvoke(
+            user_input,
+            context=chat_context,
+            workflow_plan=workflow_plan,
+            template_name=template_name,
+        )
+
+    def invoke_messages(
+        self,
+        messages: Sequence[BaseMessage],
+        *,
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute with explicit LangChain message history."""
+        return self.invoke(
+            list(messages),
+            context=context,
+            workflow_plan=workflow_plan,
+            template_name=template_name,
+        )
+
+    async def ainvoke_messages(
+        self,
+        messages: Sequence[BaseMessage],
+        *,
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Async execution with explicit LangChain message history."""
+        return await self.ainvoke(
+            list(messages),
+            context=context,
+            workflow_plan=workflow_plan,
+            template_name=template_name,
+        )
+
+    def invoke_state(self, state: Dict[str, Any], *, context: Optional[Dict] = None) -> Dict[str, Any]:
+        """Execute with an explicit LangGraph-style state dictionary."""
+        return self.invoke(state, context=context)
+
+    async def ainvoke_state(self, state: Dict[str, Any], *, context: Optional[Dict] = None) -> Dict[str, Any]:
+        """Async execution with an explicit LangGraph-style state dictionary."""
+        return await self.ainvoke(state, context=context)
 
     def health(self) -> Dict[str, Any]:
         """Return a health-check summary of the orchestrator and its components."""
@@ -570,12 +664,7 @@ class FlowOrchestrator:
         workflow_plan: Optional[List[Dict]] = None,
         template_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        plan = None
-        if template_name and self._templates:
-            plan = self._templates.apply(template_name, user_input)
-        elif workflow_plan:
-            plan = workflow_plan
-
+        plan = self._resolve_plan(user_input, workflow_plan, template_name)
         task_context = dict(context or {})
         session_id = _context_value(task_context, "session_id")
         memory_messages = self._load_memory_messages(session_id)
@@ -594,6 +683,133 @@ class FlowOrchestrator:
             "max_retries": self._max_retries,
             "aggregation_done": False,
         }
+
+    def _prepare_initial_state(
+        self,
+        user_input: Any,
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if isinstance(user_input, str):
+            return self._initial_state(user_input, context, workflow_plan, template_name)
+        if isinstance(user_input, BaseMessage):
+            return self._initial_state_from_messages(
+                [user_input],
+                context=context,
+                workflow_plan=workflow_plan,
+                template_name=template_name,
+                include_memory=True,
+            )
+        if isinstance(user_input, dict):
+            if "messages" in user_input:
+                return self._initial_state_from_state(
+                    user_input,
+                    context=context,
+                    workflow_plan=workflow_plan,
+                    template_name=template_name,
+                )
+            for key in ("input", "user_input", "content"):
+                if key in user_input:
+                    value = user_input[key]
+                    if not isinstance(value, str):
+                        raise ConfigurationError(
+                            f"FlowOrchestrator.invoke() expected dict['{key}'] to be a string",
+                            context={"input_type": type(value).__name__},
+                        )
+                    return self._initial_state(value, context, workflow_plan, template_name)
+            raise ConfigurationError(
+                "FlowOrchestrator.invoke() received a dict without 'messages', 'input', 'user_input', or 'content'",
+                context={"keys": sorted(str(key) for key in user_input.keys())},
+            )
+        if _is_message_sequence(user_input):
+            return self._initial_state_from_messages(
+                list(user_input),
+                context=context,
+                workflow_plan=workflow_plan,
+                template_name=template_name,
+                include_memory=False,
+            )
+        raise ConfigurationError(
+            "FlowOrchestrator.invoke() expected a string, BaseMessage, sequence of BaseMessage, or state dict",
+            context={"input_type": type(user_input).__name__},
+        )
+
+    def _initial_state_from_messages(
+        self,
+        messages: Sequence[BaseMessage],
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+        *,
+        include_memory: bool,
+    ) -> Dict[str, Any]:
+        _validate_messages(messages)
+        task_context = dict(context or {})
+        session_id = _context_value(task_context, "session_id")
+        memory_messages = self._load_memory_messages(session_id) if include_memory else []
+        all_messages = list(memory_messages) + list(messages)
+        user_text = _last_human_text(all_messages)
+        plan = self._resolve_plan(user_text, workflow_plan, template_name)
+
+        return {
+            "messages": all_messages,
+            "next": "",
+            "current_task": "",
+            "task_context": task_context,
+            "agent_results": {},
+            "workflow_plan": plan,
+            "memory_session_id": session_id,
+            "memory_start_len": len(memory_messages) if include_memory else len(all_messages),
+            "error_count": 0,
+            "max_retries": self._max_retries,
+            "aggregation_done": False,
+        }
+
+    def _initial_state_from_state(
+        self,
+        state: Dict[str, Any],
+        context: Optional[Dict] = None,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        messages = list(state.get("messages") or [])
+        _validate_messages(messages)
+
+        task_context = dict(state.get("task_context") or {})
+        task_context.update(context or {})
+        session_id = state.get("memory_session_id") or _context_value(task_context, "session_id")
+        user_text = _last_human_text(messages)
+        plan = workflow_plan if workflow_plan is not None else state.get("workflow_plan")
+        plan = self._resolve_plan(user_text, plan, template_name)
+
+        initial = dict(state)
+        initial.update({
+            "messages": messages,
+            "next": state.get("next", ""),
+            "current_task": state.get("current_task", ""),
+            "task_context": task_context,
+            "agent_results": dict(state.get("agent_results") or {}),
+            "workflow_plan": plan,
+            "memory_session_id": session_id,
+            "memory_start_len": int(state.get("memory_start_len", len(messages)) or 0),
+            "error_count": int(state.get("error_count", 0) or 0),
+            "max_retries": int(state.get("max_retries", self._max_retries) or self._max_retries),
+            "aggregation_done": bool(state.get("aggregation_done", False)),
+        })
+        return initial
+
+    def _resolve_plan(
+        self,
+        user_input: str,
+        workflow_plan: Optional[List[Dict]] = None,
+        template_name: Optional[str] = None,
+    ) -> Optional[List[Dict]]:
+        if template_name and self._templates:
+            return self._templates.apply(template_name, user_input)
+        if workflow_plan:
+            return workflow_plan
+        return None
 
     def _load_memory_messages(self, session_id: Optional[str]) -> List[BaseMessage]:
         if not self._memory_backend or not session_id:
@@ -736,6 +952,50 @@ def _is_langgraph_compiled_state_graph(graph: Any) -> bool:
 def _should_use_native_async(graph: Any) -> bool:
     """Use custom async graph APIs, but avoid LangGraph sync-node async hangs."""
     return not _is_langgraph_compiled_state_graph(graph)
+
+
+def _is_message_sequence(value: Any) -> bool:
+    if isinstance(value, (str, bytes, dict)):
+        return False
+    if not isinstance(value, Sequence):
+        return False
+    return all(isinstance(message, BaseMessage) for message in value)
+
+
+def _validate_messages(messages: Sequence[BaseMessage]) -> None:
+    invalid = [
+        {"index": index, "type": type(message).__name__}
+        for index, message in enumerate(messages)
+        if not isinstance(message, BaseMessage)
+    ]
+    if invalid:
+        raise ConfigurationError(
+            "FlowOrchestrator message inputs must contain only LangChain BaseMessage objects",
+            context={"invalid_messages": invalid},
+        )
+
+
+def _last_human_text(messages: Sequence[BaseMessage]) -> str:
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return str(message.content)
+    if messages:
+        return str(messages[-1].content)
+    return ""
+
+
+def _input_preview(user_input: Any) -> str:
+    if isinstance(user_input, str):
+        return user_input[:120]
+    if isinstance(user_input, BaseMessage):
+        return f"{type(user_input).__name__}: {str(user_input.content)[:100]}"
+    if isinstance(user_input, dict):
+        if "messages" in user_input:
+            return f"state(messages={len(user_input.get('messages') or [])})"
+        return f"dict(keys={sorted(str(key) for key in user_input.keys())})"
+    if _is_message_sequence(user_input):
+        return f"messages(count={len(user_input)})"
+    return f"{type(user_input).__name__}"
 
 
 async def _call_node_async(node_fn: Callable, state: Dict[str, Any]) -> Dict[str, Any]:
