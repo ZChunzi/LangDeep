@@ -1,7 +1,11 @@
 """Tests for packaging metadata and optional dependency groups."""
 
 from pathlib import Path
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 compatibility
+    import tomli as tomllib
 
 
 def test_provider_extras_cover_builtin_provider_groups():
