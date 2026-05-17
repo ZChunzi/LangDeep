@@ -306,6 +306,11 @@ def support_agent():
 ```
 
 Agent factories should return a runnable object. LangDeep validates that the created object can be invoked by the orchestration layer.
+The minimal contract is `invoke(state)`, `ainvoke(state)`, or both. Synchronous
+orchestration prefers `invoke(state)` and can bridge async-only agents when no
+event loop is already running. Asynchronous orchestration prefers
+`ainvoke(state)` and falls back to `invoke(state)` for sync-only agents. Agents
+that expose both methods are the most portable across all execution modes.
 
 Agent metadata fields:
 
@@ -958,7 +963,8 @@ Recommended minimum production controls:
 ## 31. Known Boundaries
 
 - Registries are in-process singletons; they are not distributed registries.
-- `ainvoke()` is async-compatible but currently delegates to synchronous `invoke()`.
+- `ainvoke()` uses native async graph or agent APIs when available, and falls back
+  to synchronous methods for sync-only components.
 - Built-in cache and memory backends are process-local unless replaced.
 - Built-in subprocess sandbox is not sufficient for hostile code isolation.
 - Built-in metrics are in-process snapshots, not a replacement for Prometheus/OpenTelemetry.
