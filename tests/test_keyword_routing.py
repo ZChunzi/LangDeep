@@ -4,8 +4,13 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from langdeep.core.orchestrator.router import KeywordRoutingStrategy
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+
+from langdeep.core.orchestrator.router import DefaultRouter, KeywordRoutingStrategy, RoutingStrategy
 from langdeep.core.registry.agent_registry import agent_registry, AgentMetadata
+from langdeep.core.registry.model_registry import ModelConfig, model_registry
 
 from conftest import clean_registries
 
@@ -124,3 +129,50 @@ def test_keywords_len_1_rejected():
     # Direct test of the static method
     assert router._match_keyword("a b c", "a") is False
     assert router._match_keyword("x y z", "x") is False
+
+
+def test_default_router_uses_response_cache_for_llm_path():
+    class NoFastRoute(RoutingStrategy):
+        def route(self, user_input, available_agents):
+            return None
+
+    class CountingRouterLLM(BaseChatModel):
+        calls: int = 0
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            self.calls += 1
+            tool_call = {
+                "name": "route_to_node",
+                "args": {"next_node": "chat_agent"},
+                "id": "route_1",
+            }
+            return ChatResult(generations=[ChatGeneration(
+                message=AIMessage(content="", tool_calls=[tool_call])
+            )])
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+        @property
+        def _llm_type(self):
+            return "counting-router"
+
+    llm = CountingRouterLLM()
+    model_registry.register("router_model", ModelConfig(provider="mock", model_name="router"))
+    model_registry.set_model_instance("router_model", llm)
+    model_registry.enable_response_cache(ttl=300, max_entries=10)
+
+    default_router = DefaultRouter(
+        "router_model",
+        routing_strategy=NoFastRoute(),
+        valid_targets=["chat_agent", "planner", "end"],
+    )
+    state = {"messages": [HumanMessage(content="unmatched request")]}
+    available = [{"name": "chat_agent", "description": "General chat"}]
+
+    first = default_router.route(state, available)
+    second = default_router.route(state, available)
+
+    assert first["next"] == "chat_agent"
+    assert second["next"] == "chat_agent"
+    assert llm.calls == 1

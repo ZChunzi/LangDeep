@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from langdeep.core.registry.model_registry import (
@@ -93,6 +93,72 @@ def test_mock_model_responds():
     result = llm.invoke([HumanMessage(content="hello")])
     assert result.content is not None
     assert len(str(result.content)) > 0
+
+
+def test_invoke_with_cache_disabled_by_default():
+    class CountingLLM(BaseChatModel):
+        calls: int = 0
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            self.calls += 1
+            return ChatResult(generations=[ChatGeneration(
+                message=AIMessage(content=f"call {self.calls}")
+            )])
+
+        @property
+        def _llm_type(self):
+            return "counting"
+
+    llm = CountingLLM()
+    model_registry.register("counting", ModelConfig(provider="mock", model_name="counting"))
+    model_registry.set_model_instance("counting", llm)
+
+    messages = [HumanMessage(content="hello")]
+    assert model_registry.invoke_with_cache("counting", messages).content == "call 1"
+    assert model_registry.invoke_with_cache("counting", messages).content == "call 2"
+    assert llm.calls == 2
+
+
+def test_invoke_with_cache_hits_and_uses_context_in_key():
+    class CountingLLM(BaseChatModel):
+        calls: int = 0
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            self.calls += 1
+            return ChatResult(generations=[ChatGeneration(
+                message=AIMessage(content=f"call {self.calls}")
+            )])
+
+        @property
+        def _llm_type(self):
+            return "counting"
+
+    llm = CountingLLM()
+    model_registry.register("counting", ModelConfig(provider="mock", model_name="counting"))
+    model_registry.set_model_instance("counting", llm)
+    model_registry.enable_response_cache(ttl=300, max_entries=10)
+
+    messages = [HumanMessage(content="hello")]
+    first = model_registry.invoke_with_cache(
+        "counting",
+        messages,
+        cache_context={"component": "planner"},
+    )
+    second = model_registry.invoke_with_cache(
+        "counting",
+        messages,
+        cache_context={"component": "planner"},
+    )
+    third = model_registry.invoke_with_cache(
+        "counting",
+        messages,
+        cache_context={"component": "aggregator"},
+    )
+
+    assert first.content == "call 1"
+    assert second.content == "call 1"
+    assert third.content == "call 2"
+    assert llm.calls == 2
 
 
 def test_custom_provider():

@@ -726,6 +726,13 @@ Then invoke through:
 response = model_registry.invoke_with_cache("gpt4o", messages)
 ```
 
+When enabled, the main router, planner, and aggregator LLM paths use the
+response cache through `model_registry.invoke_with_cache()`. Cache keys include
+the model name, message payload, invocation keyword arguments, and
+component-specific context such as router mode, valid routing targets, bound
+tools, or planner agent lists. Keyword routing and custom non-LLM strategies do
+not use the LLM response cache because they do not make model calls.
+
 ## 20. IM Integration
 
 The IM subsystem provides:

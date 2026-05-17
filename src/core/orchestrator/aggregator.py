@@ -79,8 +79,11 @@ class LLMMerger(ResultMerger):
                 tags={"component": "aggregator", "model": self._model_name},
             )
         try:
-            llm = model_registry.get_model(self._model_name)
-            response = llm.invoke(prompt_msgs)
+            response = model_registry.invoke_with_cache(
+                self._model_name,
+                prompt_msgs,
+                cache_context={"component": "aggregator"},
+            )
             return str(response.content)
         except Exception as exc:
             status = "failure"

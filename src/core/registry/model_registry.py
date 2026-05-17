@@ -428,31 +428,40 @@ class ModelRegistry:
             self._response_cache = backend
         logger.info("LLM response cache set", extra={"backend": type(backend).__name__})
 
-    def invoke_with_cache(self, model_name: str, messages: Sequence[BaseMessage], **kwargs) -> Any:
+    def invoke_with_cache(
+        self,
+        model_name: str,
+        messages: Sequence[BaseMessage],
+        *,
+        cache_context: Optional[Dict[str, Any]] = None,
+        invoker: Optional[Callable[..., Any]] = None,
+        **kwargs,
+    ) -> Any:
         """Invoke a model with response caching (cache is checked on hit, populated on miss).
 
         Only active when response cache is enabled (see ``enable_response_cache``).
+        ``cache_context`` should include component-specific inputs not already
+        represented in the message payload, such as bound tool names.
         """
-        import hashlib, json
-
         llm = self.get_model(model_name)
-
-        # Compute cache key
-        serialized = json.dumps(
-            [{"role": m.type, "content": str(m.content)} for m in messages],
-            default=str,
+        key = _response_cache_key(
+            model_name,
+            messages,
+            kwargs=kwargs,
+            context=cache_context,
         )
-        key = f"{model_name}:{hashlib.sha256(serialized.encode()).hexdigest()[:32]}"
 
         with self._registry_lock:
             response_cache = self._response_cache
 
         cached = response_cache.get(key)
         if cached is not None:
-            logger.debug("LLM cache hit", extra={"model": model_name})
+            logger.debug("LLM cache hit", extra={"model": model_name, "cache_key": key})
             return cached
 
-        result = llm.invoke(messages, **kwargs)
+        logger.debug("LLM cache miss", extra={"model": model_name, "cache_key": key})
+        call = invoker or llm.invoke
+        result = call(messages, **kwargs)
         response_cache.set(key, result)
         return result
 
@@ -477,3 +486,40 @@ class ModelRegistry:
 # Global singletons
 provider_registry = ProviderRegistry()
 model_registry = ModelRegistry()
+
+
+def _response_cache_key(
+    model_name: str,
+    messages: Sequence[BaseMessage],
+    *,
+    kwargs: Optional[Dict[str, Any]] = None,
+    context: Optional[Dict[str, Any]] = None,
+) -> str:
+    import hashlib
+    import json
+
+    payload = {
+        "model": model_name,
+        "messages": [
+            {
+                "role": getattr(message, "type", type(message).__name__),
+                "content": _json_safe(getattr(message, "content", "")),
+                "additional_kwargs": _json_safe(getattr(message, "additional_kwargs", {})),
+            }
+            for message in messages
+        ],
+        "kwargs": _json_safe(kwargs or {}),
+        "context": _json_safe(context or {}),
+    }
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"{model_name}:{hashlib.sha256(serialized.encode()).hexdigest()[:32]}"
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
