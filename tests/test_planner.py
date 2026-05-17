@@ -8,6 +8,8 @@ import json
 import tempfile
 
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.language_models import BaseChatModel
+from langchain_core.outputs import ChatGeneration, ChatResult
 
 from langdeep.core.observability import MetricsCollector
 from langdeep.core.orchestrator.planner import (
@@ -63,6 +65,33 @@ def test_llm_plan_generator_records_model_metrics():
         "model.duration_ms|component=planner,model=planner_model,status=success"
         in collected["histograms"]
     )
+
+
+def test_llm_plan_generator_uses_response_cache():
+    class CountingPlannerLLM(BaseChatModel):
+        calls: int = 0
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            self.calls += 1
+            content = json.dumps([
+                {"id": "t1", "agent": "test_agent", "depends_on": [], "status": "pending"}
+            ])
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+
+        @property
+        def _llm_type(self):
+            return "counting-planner"
+
+    llm = CountingPlannerLLM()
+    model_registry.set_model_instance("planner_model", llm)
+    model_registry.enable_response_cache(ttl=300, max_entries=10)
+
+    gen = LLMPlanGenerator(model_name="planner_model")
+    first = gen.generate("make a plan", ["test_agent"])
+    second = gen.generate("make a plan", ["test_agent"])
+
+    assert first == second
+    assert llm.calls == 1
 
 
 def test_planner_creates_plan():

@@ -154,6 +154,7 @@ class DefaultRouter:
 
         llm = model_registry.get_model(self._model_name)
         llm_with_tools = llm.bind_tools([self._routing_tool])
+        tool_messages = [SystemMessage(content=tool_prompt), HumanMessage(content=user_input)]
 
         model_started = time.monotonic()
         model_status = "success"
@@ -164,8 +165,17 @@ class DefaultRouter:
             )
 
         try:
-            response = llm_with_tools.invoke(
-                [SystemMessage(content=tool_prompt), HumanMessage(content=user_input)]
+            response = model_registry.invoke_with_cache(
+                self._model_name,
+                tool_messages,
+                cache_context={
+                    "component": "router",
+                    "mode": "tool",
+                    "valid_targets": self._valid_targets,
+                    "available_agents": [a["name"] for a in available_agents],
+                    "bound_tools": [self._routing_tool.name],
+                },
+                invoker=lambda messages, **kwargs: llm_with_tools.invoke(messages, **kwargs),
             )
             next_node = _parse_tool_call(response, self._valid_targets)
         except Exception as exc:
@@ -182,8 +192,16 @@ class DefaultRouter:
                 "Reply with ONLY the agent name, nothing else."
             )
             try:
-                response2 = llm.invoke(
-                    [SystemMessage(content=text_prompt), HumanMessage(content=user_input)]
+                text_messages = [SystemMessage(content=text_prompt), HumanMessage(content=user_input)]
+                response2 = model_registry.invoke_with_cache(
+                    self._model_name,
+                    text_messages,
+                    cache_context={
+                        "component": "router",
+                        "mode": "text",
+                        "valid_targets": self._valid_targets,
+                        "available_agents": [a["name"] for a in available_agents],
+                    },
                 )
                 fallback = _parse_text_routing(response2, self._valid_targets)
                 if fallback:

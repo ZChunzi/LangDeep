@@ -5,6 +5,8 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.language_models import BaseChatModel
+from langchain_core.outputs import ChatGeneration, ChatResult
 
 from langdeep.core.orchestrator.aggregator import (
     Aggregator, LLMMerger, ConcatMerger, ResultMerger, _split_results, _no_results_fallback,
@@ -55,6 +57,33 @@ def test_llm_merger_records_model_metrics():
         "model.duration_ms|component=aggregator,model=test_model,status=success"
         in collected["histograms"]
     )
+
+
+def test_llm_merger_uses_response_cache():
+    class CountingAggregatorLLM(BaseChatModel):
+        calls: int = 0
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            self.calls += 1
+            return ChatResult(generations=[ChatGeneration(
+                message=AIMessage(content=f"merged {self.calls}")
+            )])
+
+        @property
+        def _llm_type(self):
+            return "counting-aggregator"
+
+    llm = CountingAggregatorLLM()
+    model_registry.set_model_instance("test_model", llm)
+    model_registry.enable_response_cache(ttl=300, max_entries=10)
+
+    merger = LLMMerger(model_name="test_model")
+    first = merger.merge("request", {"a": "alpha"})
+    second = merger.merge("request", {"a": "alpha"})
+
+    assert first == "merged 1"
+    assert second == "merged 1"
+    assert llm.calls == 1
 
 
 def test_aggregate_single_result_returns_directly():
