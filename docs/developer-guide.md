@@ -86,6 +86,21 @@ import langdeep
 assert langdeep.__version__ == "2.0.13"
 ```
 
+The installed package also exposes a small CLI for local runtime checks:
+
+```bash
+langdeep --version
+langdeep health
+langdeep diagnostics
+langdeep diagnostics --instantiate-agents
+langdeep list
+langdeep list agents
+```
+
+`health`, `diagnostics`, and `list` print JSON. `health` returns a non-zero
+exit code only when the aggregate status is `unhealthy`; `diagnostics` returns
+a non-zero exit code when configuration errors are found.
+
 ## 5. Registries
 
 LangDeep uses singleton registries. They are simple in-process registries, not distributed configuration stores.
