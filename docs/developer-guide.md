@@ -522,6 +522,24 @@ validate_workflow_plan(
 
 `validate_workflow_plan()` catches duplicate task IDs, missing dependencies, circular dependencies, unknown agents, and unknown tools when corresponding registries are supplied.
 
+Workflow task status values are:
+
+| Status | Meaning |
+|---|---|
+| `pending` | Ready to execute once dependencies are satisfied |
+| `running` | Previously started and safe to resume/retry |
+| `completed` | Finished successfully |
+| `failed` | Finished with an execution error |
+| `skipped` | Not executed because dependencies or fail-fast policy blocked it |
+| `waiting_confirmation` | Paused until human/tool confirmation is supplied |
+
+Only `pending` and `running` tasks are executable. `completed`, `failed`,
+`skipped`, and `waiting_confirmation` are terminal for a normal executor pass.
+For backward compatibility, missing `status` defaults to `pending`.
+Applications that accept externally supplied plans can call
+`validate_workflow_plan(..., require_status=True)` to reject tasks that omit the
+field.
+
 ## 15. Execution Policy
 
 `ExecutionPolicy` controls workflow task execution:

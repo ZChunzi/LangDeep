@@ -13,6 +13,7 @@ from ..execution.execution_policy import ExecutionPolicy
 from ..observability.metrics import MetricsCollector
 from ..registry.agent_registry import agent_registry
 from ..registry.tool_registry import tool_registry
+from ...schemas import is_executable_task_status, validate_workflow_plan
 
 logger = get_logger(__name__)
 
@@ -307,7 +308,12 @@ class Executor:
         if self._metrics is not None:
             self._metrics.counter("execution.requests", tags={"strategy": self._policy.strategy})
         workflow_plan = state.get("workflow_plan") or []
-        pending = [t for t in workflow_plan if t.get("status") != "completed"]
+        if workflow_plan:
+            workflow_plan = validate_workflow_plan(
+                workflow_plan,
+                check_dependencies=False,
+            ).to_task_dicts()
+        pending = [t for t in workflow_plan if is_executable_task_status(t.get("status"))]
         if self._metrics is not None:
             self._metrics.histogram("execution.pending_tasks", float(len(pending)))
 

@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langdeep.core.orchestrator.executor import Executor, _dependencies_satisfied
 from langdeep.core.execution.execution_policy import ExecutionPolicy
 from langdeep.core.registry.agent_registry import agent_registry, AgentMetadata
+from langdeep.core.errors import PlannerError
 
 from conftest import clean_registries
 
@@ -55,6 +56,22 @@ def test_execute_no_pending_tasks():
     assert "All tasks completed" in result["messages"][0].content
 
 
+def test_execute_rejects_invalid_workflow_status():
+    _register_agents()
+    ex = Executor()
+    state = {
+        "messages": [HumanMessage(content="hi")],
+        "workflow_plan": [
+            {"id": "t1", "agent": "agent_a", "depends_on": [], "status": "queued"},
+        ],
+    }
+    try:
+        ex.execute(state)
+        assert False, "Should raise"
+    except PlannerError as exc:
+        assert "schema validation failed" in str(exc)
+
+
 def test_execute_no_workflow_plan():
     _register_agents()
     ex = Executor()
@@ -76,6 +93,43 @@ def test_execute_single_task():
     result = ex.execute(state)
     assert "t1" in result["agent_results"]
     assert "agent_a" in result["agent_results"]["t1"]
+
+
+def test_execute_defaults_missing_status_to_pending():
+    _register_agents()
+    ex = Executor()
+    state = {
+        "messages": [HumanMessage(content="do it")],
+        "workflow_plan": [
+            {"id": "t1", "agent": "agent_a", "depends_on": []},
+        ],
+        "task_context": {},
+    }
+    result = ex.execute(state)
+    assert result["workflow_plan"][0]["status"] == "completed"
+    assert "t1" in result["agent_results"]
+
+
+def test_execute_does_not_rerun_terminal_status_tasks():
+    _register_agents()
+    ex = Executor()
+    state = {
+        "messages": [HumanMessage(content="do it")],
+        "workflow_plan": [
+            {"id": "done", "agent": "agent_a", "depends_on": [], "status": "completed"},
+            {"id": "failed", "agent": "agent_b", "depends_on": [], "status": "failed"},
+            {"id": "skipped", "agent": "agent_c", "depends_on": [], "status": "skipped"},
+            {
+                "id": "waiting",
+                "agent": "agent_a",
+                "depends_on": [],
+                "status": "waiting_confirmation",
+            },
+        ],
+        "task_context": {},
+    }
+    result = ex.execute(state)
+    assert "All tasks completed" in result["messages"][0].content
 
 
 def test_execute_sequential_dependency():

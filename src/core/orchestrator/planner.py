@@ -11,7 +11,7 @@ from ..errors import PlannerError, TemplateNotFoundError
 from ..observability.metrics import MetricsCollector
 from ..registry.agent_registry import agent_registry
 from ..registry.tool_registry import tool_registry
-from ...schemas import validate_workflow_plan
+from ...schemas import status_from_execution_result, validate_workflow_plan
 
 logger = get_logger(__name__)
 
@@ -153,6 +153,11 @@ class Planner:
         existing = state.get("workflow_plan")
         if existing and len(existing) > 0:
             logger.info("Reusing existing workflow plan", extra={"plan_size": len(existing)})
+            validate_workflow_plan(
+                existing,
+                available_agents=agent_registry.list_agents(),
+                available_tools=tool_registry.list_tools(),
+            )
             self._record_plan(started, status="reused", task_count=len(existing))
             return {"workflow_plan": existing}
 
@@ -291,15 +296,7 @@ def update_plan_status(plan: List[Dict], results: Dict[str, Any]) -> List[Dict]:
     for task in plan:
         tid = task.get("id")
         if tid and tid in results:
-            result = results[tid]
-            if isinstance(result, dict) and result.get("status") == "waiting_confirmation":
-                task["status"] = "waiting_confirmation"
-            elif isinstance(result, dict) and result.get("status") == "skipped":
-                task["status"] = "skipped"
-            elif isinstance(result, dict) and result.get("success"):
-                task["status"] = "completed"
-            else:
-                task["status"] = "failed"
+            task["status"] = status_from_execution_result(results[tid])
     return plan
 
 
