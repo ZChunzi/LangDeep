@@ -58,6 +58,9 @@ dev = [
 [project.urls]
 Repository = "https://github.com/ZChunzi/LangDeep"
 
+[project.scripts]
+langdeep = "langdeep.cli:main"
+
 [tool.setuptools]
 package-dir = {"langdeep" = "src"}
 packages = [
