@@ -598,6 +598,17 @@ orchestrator = FlowOrchestrator(
 )
 ```
 
+Aggregator input and output contract:
+
+- `agent_results` may contain plain final-answer strings, LangChain message
+  shaped dictionaries, or executor-style dictionaries such as
+  `{"success": True, "data": "...", "error": ""}`.
+- Failed, skipped, or `waiting_confirmation` executor results are excluded from
+  synthesis and recorded as failed aggregation inputs.
+- `ResultMerger.merge(user_request, agent_results)` receives only successful
+  final-answer text as `Dict[str, str]`.
+- Aggregator returns `{"messages": [AssistantMessage(...)], "aggregation_done": True}`.
+
 ## 17. Prompts
 
 Prompt templates are Markdown files loaded by `MarkdownPromptLoader`.

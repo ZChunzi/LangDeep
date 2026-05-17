@@ -81,7 +81,7 @@ def test_aggregate_failed_results_fallback():
     agg = Aggregator(model_name="test_model")
     state = {
         "messages": [HumanMessage(content="hi")],
-        "agent_results": {"fail": "Agent something broke"},
+        "agent_results": {"fail": {"success": False, "data": "", "error": "Agent something broke"}},
     }
     result = agg.aggregate(state)
     assert "Errors occurred" in result["messages"][0].content
@@ -112,8 +112,8 @@ def test_aggregate_failed_excluded():
 def test_split_results():
     results = {
         "a": "valid data",
-        "b": "Agent something broke",
-        "c": "error occurred",
+        "b": {"success": False, "data": "", "error": "Agent something broke"},
+        "c": {"success": False, "data": "", "error": "error occurred"},
         "d": "good result",
     }
     success, failed = _split_results(results)
@@ -121,6 +121,35 @@ def test_split_results():
     assert "d" in success
     assert "b" in failed
     assert "c" in failed
+
+
+def test_split_results_structured_executor_results():
+    results = {
+        "ok": {"success": True, "data": "structured answer", "error": ""},
+        "failed": {"success": False, "data": "", "error": "tool failed"},
+        "waiting": {
+            "success": False,
+            "data": "",
+            "error": "",
+            "status": "waiting_confirmation",
+            "reason": "tool_requires_confirmation:delete_file",
+        },
+        "skipped": {"success": False, "data": "", "error": "Dependency unsatisfied", "status": "skipped"},
+    }
+    success, failed = _split_results(results)
+    assert success == {"ok": "structured answer"}
+    assert failed["failed"] == "tool failed"
+    assert "waiting_confirmation" in failed["waiting"]
+    assert "Dependency unsatisfied" in failed["skipped"]
+
+
+def test_split_results_extracts_structured_message_result():
+    results = {
+        "agent": {"messages": [HumanMessage(content="hi"), AIMessage(content="final answer")]},
+    }
+    success, failed = _split_results(results)
+    assert success == {"agent": "final answer"}
+    assert failed == {}
 
 
 def test_no_results_fallback_with_ai_message():
@@ -153,7 +182,7 @@ def test_aggregate_sets_aggregation_done():
 
 
 def test_split_results_edge_strings():
-    """Strings containing 'error' or starting with 'Agent' are classed as failed."""
+    """Plain strings are treated as successful payloads unless they are empty."""
     results = {
         "a": "error_handler_module",   # contains "error" but is legitimate
         "b": "clean_result",
@@ -161,10 +190,10 @@ def test_split_results_edge_strings():
         "d": "",                        # falsy → failed
     }
     success, failed = _split_results(results)
-    assert "a" in failed    # heuristic: contains "error"
-    assert "c" in failed    # heuristic: starts with "Agent"
-    assert "d" in failed    # heuristic: falsy
+    assert "a" in success
     assert "b" in success
+    assert "c" in success
+    assert "d" in failed
 
 
 def test_split_results_normal():
