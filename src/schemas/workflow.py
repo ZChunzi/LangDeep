@@ -6,6 +6,24 @@ from pydantic import BaseModel, Field
 
 from ..core.errors import PlannerError
 
+PENDING = "pending"
+RUNNING = "running"
+COMPLETED = "completed"
+FAILED = "failed"
+SKIPPED = "skipped"
+WAITING_CONFIRMATION = "waiting_confirmation"
+
+WORKFLOW_TASK_STATUSES = (
+    PENDING,
+    RUNNING,
+    COMPLETED,
+    FAILED,
+    SKIPPED,
+    WAITING_CONFIRMATION,
+)
+EXECUTABLE_TASK_STATUSES = {PENDING, RUNNING}
+TERMINAL_TASK_STATUSES = {COMPLETED, FAILED, SKIPPED, WAITING_CONFIRMATION}
+
 TaskStatus = Literal["pending", "running", "completed", "failed", "skipped", "waiting_confirmation"]
 
 
@@ -53,8 +71,13 @@ def validate_workflow_plan(
     *,
     available_agents: Optional[List[str]] = None,
     available_tools: Optional[List[str]] = None,
+    check_dependencies: bool = True,
+    require_status: bool = False,
 ) -> WorkflowPlan:
     """Validate structure, references, duplicate IDs, missing dependencies, and cycles."""
+    if require_status:
+        _assert_status_present(plan)
+
     try:
         workflow = WorkflowPlan.from_raw_plan(plan)
     except PlannerError:
@@ -85,15 +108,55 @@ def validate_workflow_plan(
                 "Workflow task references unknown tools",
                 context={"task_id": task.id, "missing_tools": missing_tools},
             )
-        missing_deps = [dep for dep in task.depends_on if dep not in known_tasks]
-        if missing_deps:
+        if check_dependencies:
+            missing_deps = [dep for dep in task.depends_on if dep not in known_tasks]
+            if missing_deps:
+                raise PlannerError(
+                    "Workflow task references missing dependencies",
+                    context={"task_id": task.id, "missing_dependencies": missing_deps},
+                )
+
+    if check_dependencies:
+        _assert_acyclic(workflow.tasks)
+    return workflow
+
+
+def is_executable_task_status(status: Any) -> bool:
+    """Return True when a task status should be executed or resumed."""
+    return (status or PENDING) in EXECUTABLE_TASK_STATUSES
+
+
+def status_from_execution_result(result: Any) -> TaskStatus:
+    """Map executor result dictionaries to workflow task statuses."""
+    if isinstance(result, dict):
+        if result.get("success") is True:
+            return COMPLETED
+
+        status = result.get("status")
+        if status in TERMINAL_TASK_STATUSES:
+            return status
+
+    return FAILED
+
+
+def _assert_status_present(plan: Any) -> None:
+    for index, task in enumerate(_raw_tasks(plan)):
+        if not isinstance(task, dict) or "status" not in task:
+            task_id = task.get("id") if isinstance(task, dict) else None
             raise PlannerError(
-                "Workflow task references missing dependencies",
-                context={"task_id": task.id, "missing_dependencies": missing_deps},
+                "Workflow task is missing required status",
+                context={"task_index": index, "task_id": task_id},
             )
 
-    _assert_acyclic(workflow.tasks)
-    return workflow
+
+def _raw_tasks(plan: Any) -> List[Any]:
+    if isinstance(plan, list):
+        return plan
+    if isinstance(plan, dict):
+        tasks = plan.get("tasks", plan.get("steps"))
+        if isinstance(tasks, list):
+            return tasks
+    return []
 
 
 def _assert_acyclic(tasks: List[WorkflowTask]) -> None:

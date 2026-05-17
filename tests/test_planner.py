@@ -16,7 +16,7 @@ from langdeep.core.orchestrator.planner import (
 )
 from langdeep.core.registry.model_registry import model_registry, ModelConfig
 from langdeep.core.registry.agent_registry import agent_registry, AgentMetadata
-from langdeep.core.errors import TemplateNotFoundError
+from langdeep.core.errors import PlannerError, TemplateNotFoundError
 
 from conftest import clean_registries, SmartMockLLM
 
@@ -84,6 +84,19 @@ def test_planner_reuses_existing_plan():
     }
     result = planner.plan(state)
     assert result["workflow_plan"] is existing
+
+
+def test_planner_rejects_existing_plan_with_invalid_status():
+    planner = Planner(model_name="planner_model")
+    state = {
+        "messages": [HumanMessage(content="research")],
+        "workflow_plan": [{"id": "t1", "agent": "test_agent", "status": "queued"}],
+    }
+    try:
+        planner.plan(state)
+        assert False, "Should raise"
+    except PlannerError as exc:
+        assert "schema validation failed" in str(exc)
 
 
 def test_parse_plan_content_json():
