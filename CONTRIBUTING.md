@@ -15,6 +15,17 @@ Start with scoped tasks that have clear acceptance criteria:
 
 Large API changes, provider additions, new storage backends, sandbox changes, or orchestration behavior changes should start with an issue before implementation.
 
+## Issue templates
+
+Use the issue template that matches the work you want to discuss:
+
+- Bug report: reproducible defects, regressions, exceptions, or behavior that contradicts the documented API. Include steps to reproduce, expected behavior, actual behavior, logs when useful, Python/OS information, and the LangDeep version or commit.
+- Feature request: new capabilities or meaningful behavior changes. Describe the problem, proposed API or behavior, affected area, alternatives considered, and acceptance criteria.
+- Documentation improvement: missing, unclear, stale, or misleading docs, guides, README content, or examples. Point to the affected location and describe the expected improvement.
+- Good first issue: small, scoped tasks suitable for new contributors. Include background, goal, likely files, acceptance criteria, suggested approach, and references.
+
+The issue chooser also links to GitHub Discussions for usage questions and to `SECURITY.md` for private vulnerability reporting. Keep template fields intact when editing `.github/ISSUE_TEMPLATE/*.yml`; GitHub issue forms require top-level `name`, `description`, `title`, `labels`, and `body` fields for each issue form.
+
 ## Development setup
 
 ```bash
