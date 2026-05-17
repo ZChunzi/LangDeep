@@ -176,13 +176,13 @@ def test_split_results_random_strings():
             if choice == 0:
                 value = ""  # falsy → failed
             elif choice == 1:
-                value = "Agent " + "xyz"  # starts with "Agent" → failed
+                value = "Agent " + "xyz"
             elif choice == 2:
-                value = "something error happened"  # contains "error" → failed
+                value = "something error happened"
             elif choice == 3:
-                value = "ERROR: timeout"  # contains "ERROR" → failed
+                value = "ERROR: timeout"
             elif choice == 4:
-                value = "AgentSmith"  # starts with Agent → failed
+                value = "AgentSmith"
             elif choice == 5:
                 value = "normal result"
             else:
@@ -199,7 +199,9 @@ def test_split_results_random_strings():
         overlap = set(success.keys()) & set(failed.keys())
         assert len(overlap) == 0
 
-        # Invariant 3: Heuristic rules
+        # Invariant 3: Plain strings are successful payloads unless empty.
         for key, value in results.items():
-            if not value or "error" in value.lower() or value.startswith("Agent"):
+            if not value:
                 assert key in failed, f"Key {key}={value!r} should be in failed"
+            else:
+                assert key in success, f"Key {key}={value!r} should be in success"

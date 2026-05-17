@@ -1,16 +1,28 @@
 """Result aggregation — merges multi-agent outputs into a single coherent response."""
 
+import json
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from ..logging import get_logger
 from ..errors import AggregatorError
 from ..observability.metrics import MetricsCollector
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class AggregationInput:
+    """Normalized agent result consumed by result mergers."""
+
+    name: str
+    success: bool
+    text: str
+    status: str = "completed"
 
 
 # ── Extension point ──────────────────────────────────────────────────────────────
@@ -188,23 +200,116 @@ class Aggregator:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
 
-def _split_results(results: Dict[str, str]) -> tuple:
+def _split_results(results: Dict[str, Any]) -> tuple:
     success = {}
     failed = {}
-    for k, v in results.items():
-        if v and not str(v).startswith("Agent") and "error" not in str(v).lower():
-            success[k] = v
+    for name, value in results.items():
+        item = _normalize_result(name, value)
+        if item.success:
+            success[name] = item.text
         else:
-            failed[k] = v
+            failed[name] = item.text
     return success, failed
+
+
+def _normalize_result(name: str, value: Any) -> AggregationInput:
+    """Convert supported agent result shapes into an explicit success/failure."""
+    if isinstance(value, dict):
+        return _normalize_mapping_result(name, value)
+
+    if isinstance(value, BaseMessage):
+        if _is_final_ai_message(value) or isinstance(value, HumanMessage):
+            return _text_result(name, value.content)
+        return AggregationInput(name=name, success=False, text=str(value.content or ""), status="message")
+
+    return _text_result(name, value)
+
+
+def _normalize_mapping_result(name: str, value: Dict[str, Any]) -> AggregationInput:
+    status = str(value.get("status") or "")
+    has_success = "success" in value
+
+    if has_success and value.get("success") is True:
+        text = _stringify_result_payload(value.get("data", ""))
+        if text:
+            return AggregationInput(name=name, success=True, text=text, status=status or "completed")
+        return AggregationInput(name=name, success=False, text="Empty successful result", status="empty")
+
+    if has_success and value.get("success") is False:
+        return AggregationInput(
+            name=name,
+            success=False,
+            text=_structured_failure_text(value),
+            status=status or "failed",
+        )
+
+    if "messages" in value:
+        text = _extract_final_message_content(value.get("messages") or [])
+        if text:
+            return AggregationInput(name=name, success=True, text=text, status=status or "completed")
+
+    if "data" in value:
+        return _text_result(name, value.get("data"), status=status or "completed")
+
+    return _text_result(name, value, status=status or "completed")
+
+
+def _text_result(name: str, value: Any, status: str = "completed") -> AggregationInput:
+    text = _stringify_result_payload(value)
+    if text:
+        return AggregationInput(name=name, success=True, text=text, status=status)
+    return AggregationInput(name=name, success=False, text="", status="empty")
+
+
+def _structured_failure_text(value: Dict[str, Any]) -> str:
+    status = _stringify_result_payload(value.get("status", "failed")) or "failed"
+    for key in ("error", "reason", "message"):
+        text = _stringify_result_payload(value.get(key, ""))
+        if text:
+            return f"{status}: {text}" if status not in {"failed", "failure"} else text
+
+    task_id = _stringify_result_payload(value.get("task_id", ""))
+    if task_id:
+        return f"{status}: {task_id}"
+    return status
+
+
+def _stringify_result_payload(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, BaseMessage):
+        return str(value.content or "")
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(value, ensure_ascii=False, default=str)
+        except TypeError:
+            return str(value)
+    return str(value)
+
+
+def _extract_final_message_content(messages: List[Any]) -> str:
+    for message in reversed(messages):
+        if _is_final_ai_message(message):
+            return _stringify_result_payload(message.content)
+    return ""
+
+
+def _is_final_ai_message(message: Any) -> bool:
+    return (
+        isinstance(message, AIMessage)
+        and bool(message.content)
+        and not getattr(message, "tool_calls", None)
+    )
 
 
 def _no_results_fallback(state: Dict[str, Any], failed: Dict[str, str]) -> str:
     if failed:
         return "Errors occurred during execution. Please try again later."
-    for m in reversed(state.get("messages", [])):
-        if isinstance(m, AIMessage) and m.content and not getattr(m, "tool_calls", None):
-            return str(m.content)
+    answer = _extract_final_message_content(state.get("messages", []))
+    if answer:
+        return answer
     return "No results available. Please try again."
 
 
