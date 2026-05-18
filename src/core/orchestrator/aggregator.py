@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from ..logging import get_logger
 from ..errors import AggregatorError
 from ..observability.metrics import MetricsCollector
+from ..observability.tracing import NoOpTracingAdapter
 
 logger = get_logger(__name__)
 
@@ -47,10 +48,12 @@ class LLMMerger(ResultMerger):
         model_name: str,
         prompt_loader=None,
         metrics_collector: Optional[MetricsCollector] = None,
+        tracing_adapter: Optional[Any] = None,
     ):
         self._model_name = model_name
         self._prompt_loader = prompt_loader
         self._metrics = metrics_collector
+        self._tracing = tracing_adapter or NoOpTracingAdapter()
 
     def merge(self, user_request: str, agent_results: Dict[str, str]) -> str:
         from ..registry.model_registry import model_registry
@@ -79,11 +82,16 @@ class LLMMerger(ResultMerger):
                 tags={"component": "aggregator", "model": self._model_name},
             )
         try:
-            response = model_registry.invoke_with_cache(
-                self._model_name,
-                prompt_msgs,
-                cache_context={"component": "aggregator"},
-            )
+            with self._tracing.start_span(
+                "langdeep.model",
+                {"langdeep.component": "aggregator", "langdeep.model": self._model_name},
+            ) as span:
+                response = model_registry.invoke_with_cache(
+                    self._model_name,
+                    prompt_msgs,
+                    cache_context={"component": "aggregator"},
+                )
+                span.set_attribute("langdeep.status", "success")
             return str(response.content)
         except Exception as exc:
             status = "failure"
@@ -133,12 +141,14 @@ class Aggregator:
         merger: Optional[ResultMerger] = None,
         prompt_loader=None,
         metrics_collector: Optional[MetricsCollector] = None,
+        tracing_adapter: Optional[Any] = None,
     ):
         self._metrics = metrics_collector
         self._merger = merger or LLMMerger(
             model_name,
             prompt_loader,
             metrics_collector=metrics_collector,
+            tracing_adapter=tracing_adapter,
         )
         self._concat = ConcatMerger()
 

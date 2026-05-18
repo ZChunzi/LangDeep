@@ -43,6 +43,7 @@ class ToolRegistry:
                 instance._policy = ToolExecutionPolicy()
                 instance._audit_log = ToolAuditLog()
                 instance._metrics_collector = None
+                instance._tracing_adapter = None
                 instance._registry_lock = threading.RLock()
                 cls._registries[namespace] = instance
                 if namespace == "default":
@@ -98,6 +99,7 @@ class ToolRegistry:
             policy = self._policy
             audit_log = self._audit_log
             metrics_collector = self._metrics_collector
+            tracing_adapter = self._tracing_adapter
         if not enforce_policy or not isinstance(tool, BaseTool):
             return tool
         return wrap_tool(
@@ -106,6 +108,7 @@ class ToolRegistry:
             policy=policy,
             audit_log=audit_log,
             metrics_collector=metrics_collector,
+            tracing_adapter=tracing_adapter,
         )
 
     def get_raw_tool(self, name: str) -> BaseTool:
@@ -127,6 +130,7 @@ class ToolRegistry:
             policy = self._policy
             audit_log = self._audit_log
             metrics_collector = self._metrics_collector
+            tracing_adapter = self._tracing_adapter
 
         result = []
         for name, tool_obj, meta in entries:
@@ -144,6 +148,7 @@ class ToolRegistry:
                         policy=policy,
                         audit_log=audit_log,
                         metrics_collector=metrics_collector,
+                        tracing_adapter=tracing_adapter,
                     )
                 )
             else:
@@ -198,6 +203,16 @@ class ToolRegistry:
         with self._registry_lock:
             return self._metrics_collector
 
+    def set_tracing_adapter(self, tracing_adapter: Optional[Any]) -> None:
+        """Attach a tracing adapter used by policy-wrapped tools."""
+        with self._registry_lock:
+            self._tracing_adapter = tracing_adapter
+
+    def get_tracing_adapter(self) -> Optional[Any]:
+        """Return the tracing adapter used by policy-wrapped tools."""
+        with self._registry_lock:
+            return self._tracing_adapter
+
     def snapshot(self) -> Dict[str, Any]:
         """Return a shallow runtime snapshot with copied metadata and policy."""
         with self._registry_lock:
@@ -208,6 +223,7 @@ class ToolRegistry:
                 "policy": copy.deepcopy(self._policy),
                 "audit_records": self._audit_log.list_records(),
                 "metrics_enabled": self._metrics_collector is not None,
+                "tracing_enabled": self._tracing_adapter is not None,
             }
 
     def reset(self) -> None:
@@ -218,6 +234,7 @@ class ToolRegistry:
             self._policy = ToolExecutionPolicy()
             self._audit_log.clear()
             self._metrics_collector = None
+            self._tracing_adapter = None
 
 
 tool_registry = ToolRegistry()
