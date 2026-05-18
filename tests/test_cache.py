@@ -4,6 +4,7 @@ import time
 
 from langdeep.core.cache import (
     MemoryCache,
+    FileCacheBackend,
     BaseCacheBackend,
     CacheRegistry,
     cache_registry,
@@ -189,6 +190,82 @@ def test_cache_concurrent_access():
         t.join(timeout=5)
 
     assert not errors, f"Concurrent access failed: {errors}"
+
+
+# ── FileCacheBackend ────────────────────────────────────────────────────────
+
+
+def test_file_cache_get_set_and_miss(tmp_path):
+    """FileCacheBackend stores and retrieves pickle-serializable values."""
+    c = FileCacheBackend(str(tmp_path), max_entries=10)
+    c.set("key1", {"value": 1})
+
+    assert c.get("key1") == {"value": 1}
+    assert c.get("missing") is None
+    assert c.has("key1") is True
+    assert len(c) == 1
+
+
+def test_file_cache_persists_across_instances(tmp_path):
+    """A new FileCacheBackend instance can read existing cache entries."""
+    first = FileCacheBackend(str(tmp_path), max_entries=10)
+    first.set("key1", "persisted")
+
+    second = FileCacheBackend(str(tmp_path), max_entries=10)
+    assert second.get("key1") == "persisted"
+
+
+def test_file_cache_ttl_expiry(tmp_path):
+    """Expired file cache entries are removed and not returned."""
+    c = FileCacheBackend(str(tmp_path), max_entries=10, default_ttl=0.01)
+    c.set("short", "lived")
+    assert c.get("short") == "lived"
+
+    time.sleep(0.02)
+    assert c.get("short") is None
+    assert len(c) == 0
+
+
+def test_file_cache_max_entries_evicts_oldest(tmp_path):
+    """FileCacheBackend evicts least recently accessed entries over max_entries."""
+    c = FileCacheBackend(str(tmp_path), max_entries=2)
+    c.set("a", 1)
+    c.set("b", 2)
+    assert c.get("a") == 1
+    c.set("c", 3)
+
+    assert c.get("a") == 1
+    assert c.get("b") is None
+    assert c.get("c") == 3
+    assert len(c) == 2
+
+
+def test_file_cache_delete_and_clear(tmp_path):
+    """Delete and clear remove file-backed entries."""
+    c = FileCacheBackend(str(tmp_path), max_entries=10)
+    c.set("a", 1)
+    c.set("b", 2)
+
+    assert c.delete("a") is True
+    assert c.delete("a") is False
+    assert c.get("a") is None
+    assert c.get("b") == 2
+
+    c.clear()
+    assert c.get("b") is None
+    assert len(c) == 0
+
+
+def test_file_cache_rejects_file_path(tmp_path):
+    """FileCacheBackend requires a directory path."""
+    file_path = tmp_path / "cache-file"
+    file_path.write_text("not a directory")
+
+    try:
+        FileCacheBackend(str(file_path))
+        assert False, "Should reject file path"
+    except ValueError as exc:
+        assert "directory" in str(exc)
 
 
 # ── CacheRegistry ───────────────────────────────────────────────────────────

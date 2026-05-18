@@ -26,6 +26,7 @@ from .memory import (
 )
 from .cache import (
     BaseCacheBackend,
+    FileCacheBackend,
     MemoryCache,
     CacheRegistry,
     cache_registry,
@@ -112,6 +113,7 @@ __all__ = [
     "memory",
     # Cache
     "BaseCacheBackend",
+    "FileCacheBackend",
     "MemoryCache",
     "CacheRegistry",
     "cache_registry",
