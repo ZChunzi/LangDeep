@@ -39,6 +39,10 @@ anthropic = ["langchain-anthropic"]
 google-genai = ["langchain-google-genai"]
 vertexai = ["langchain-google-vertexai"]
 ollama = ["langchain-ollama"]
+server = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
 all = [
     "langchain-anthropic",
     "langchain-google-genai",

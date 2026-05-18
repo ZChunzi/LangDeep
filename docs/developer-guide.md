@@ -432,6 +432,28 @@ For multi-turn applications, prefer `chat(user_input, session_id=...)` with a
 registered memory backend. For advanced graph integration, prefer
 `invoke_state(...)` so the call site states that it is passing graph state.
 
+### FastAPI server example
+
+`examples/fastapi_server.py` shows how to expose a LangDeep orchestrator over HTTP without a real LLM API key. It registers a mock provider model, validates runtime wiring during startup, and exposes:
+
+- `GET /health`: returns `validate_runtime(instantiate_agents=True)` diagnostics.
+- `POST /chat`: accepts `{"message": "...", "session_id": "optional"}` and returns the result of `FlowOrchestrator.chat_text()`.
+
+Install the optional server dependencies and run it from the repository root:
+
+```bash
+python -m pip install "langdeep[server]"
+uvicorn examples.fastapi_server:app --reload
+```
+
+Example request:
+
+```bash
+curl -X POST http://127.0.0.1:8000/chat \
+  -H "content-type: application/json" \
+  -d '{"message": "hello from HTTP", "session_id": "demo"}'
+```
+
 ## 11. Graph Architecture
 
 The graph is built around these nodes:
