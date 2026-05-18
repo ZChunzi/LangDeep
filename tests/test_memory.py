@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, Tool
 
 from langdeep.core.memory import (
     InMemoryBackend,
+    RedisMemoryBackend,
     MemoryEntry,
     BaseMemoryBackend,
     MemoryRegistry,
@@ -139,6 +140,138 @@ def test_in_memory_concurrent_store():
 
     assert len(backend.load_messages("t1")) == 50
     assert len(backend.load_messages("t2")) == 50
+
+
+# ── RedisMemoryBackend ───────────────────────────────────────────────────────
+
+
+class FakeRedis:
+    def __init__(self):
+        self.lists = {}
+        self.sets = {}
+        self.expirations = {}
+        self.closed = False
+
+    def rpush(self, key, *values):
+        self.lists.setdefault(key, []).extend(values)
+        return len(self.lists[key])
+
+    def lrange(self, key, start, end):
+        values = self.lists.get(key, [])
+        stop = None if end == -1 else end + 1
+        return values[start:stop]
+
+    def lset(self, key, index, value):
+        self.lists[key][index] = value
+
+    def llen(self, key):
+        return len(self.lists.get(key, []))
+
+    def sadd(self, key, value):
+        self.sets.setdefault(key, set()).add(value)
+        return 1
+
+    def smembers(self, key):
+        return set(self.sets.get(key, set()))
+
+    def srem(self, key, value):
+        values = self.sets.get(key, set())
+        existed = value in values
+        values.discard(value)
+        return 1 if existed else 0
+
+    def delete(self, *keys):
+        deleted = 0
+        for key in keys:
+            if key in self.lists:
+                deleted += 1
+                del self.lists[key]
+            if key in self.sets:
+                deleted += 1
+                del self.sets[key]
+        return deleted
+
+    def expire(self, key, ttl):
+        self.expirations[key] = ttl
+
+    def close(self):
+        self.closed = True
+
+
+def test_redis_memory_store_messages_appends_and_loads_in_order():
+    backend = RedisMemoryBackend(client=FakeRedis())
+
+    assert backend.store_messages("s", [HumanMessage(content="first")]) == 1
+    assert backend.store_messages("s", [AIMessage(content="second")]) == 1
+
+    loaded = backend.load_messages("s")
+    assert [message.content for message in loaded] == ["first", "second"]
+    assert [message.type for message in loaded] == ["human", "ai"]
+    assert backend.get_entry_count("s") == 2
+
+
+def test_redis_memory_store_entry_replaces_existing_index():
+    backend = RedisMemoryBackend(client=FakeRedis())
+    backend.store_messages("s", [HumanMessage(content="original")])
+
+    backend.store_entry("s", MemoryEntry("s", 0, "human", "updated", datetime.now()))
+
+    loaded = backend.load_messages("s")
+    assert len(loaded) == 1
+    assert loaded[0].content == "updated"
+
+
+def test_redis_memory_sessions_delete_clear_and_close():
+    client = FakeRedis()
+    backend = RedisMemoryBackend(client=client, ttl_seconds=60)
+    backend.store_messages("b", [HumanMessage(content="b")])
+    backend.store_messages("a", [HumanMessage(content="a")])
+
+    assert backend.list_sessions() == ["a", "b"]
+    assert backend.get_entry_count() == 2
+    assert backend.delete_session("a") is True
+    assert backend.delete_session("missing") is False
+    assert backend.list_sessions() == ["b"]
+    assert client.expirations["langdeep:memory:session:b"] == 60
+
+    backend.clear()
+    assert backend.list_sessions() == []
+    assert backend.load_messages("b") == []
+
+    backend.close()
+    assert client.closed is True
+
+
+def test_redis_memory_roundtrips_tool_calls():
+    backend = RedisMemoryBackend(client=FakeRedis())
+    message = AIMessage(
+        content="",
+        tool_calls=[{"name": "lookup", "args": {"query": "refund"}, "id": "call_1"}],
+    )
+
+    backend.store_messages("s", [message])
+
+    loaded = backend.load_messages("s")
+    assert loaded[0].tool_calls[0]["name"] == "lookup"
+
+
+def test_redis_memory_requires_optional_dependency_without_client(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "redis":
+            raise ImportError("missing redis")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    try:
+        RedisMemoryBackend()
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        assert "langdeep[redis]" in str(exc)
 
 
 # ── Serialization ────────────────────────────────────────────────────────────

@@ -67,6 +67,9 @@ pip install -e ".[all]"
 # Individual provider dependency groups are also available:
 # .[anthropic], .[google-genai], .[vertexai], .[ollama]
 
+# Optional persistence backends:
+# .[redis]
+
 # Test, coverage, lint, and build tooling
 pip install -e ".[dev]"
 ```
