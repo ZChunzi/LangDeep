@@ -6,6 +6,8 @@ from langdeep.core.observability import (
     HealthStatus,
     HealthChecker,
     MetricsCollector,
+    PrometheusMetricsExporter,
+    export_prometheus_metrics,
 )
 
 
@@ -183,3 +185,49 @@ def test_metrics_clear():
     assert mc.get_metrics()["counters"] == {}
     assert mc.get_metrics()["gauges"] == {}
     assert mc.get_metrics()["histograms"] == {}
+
+
+# ── Prometheus exporter ─────────────────────────────────────────────────────
+
+
+def test_prometheus_exporter_formats_counters_gauges_and_histograms():
+    mc = MetricsCollector()
+    mc.counter("requests.total", 2, tags={"endpoint": "/chat", "status": "ok"})
+    mc.gauge("workers.active", 3)
+    mc.histogram("latency_ms", 10, tags={"endpoint": "/chat"})
+    mc.histogram("latency_ms", 30, tags={"endpoint": "/chat"})
+
+    output = export_prometheus_metrics(mc.get_metrics())
+
+    assert "# TYPE langdeep_requests_total counter" in output
+    assert 'langdeep_requests_total{endpoint="/chat",status="ok"} 2' in output
+    assert "# TYPE langdeep_workers_active gauge" in output
+    assert "langdeep_workers_active 3" in output
+    assert "# TYPE langdeep_latency_ms summary" in output
+    assert 'langdeep_latency_ms_count{endpoint="/chat"} 2' in output
+    assert 'langdeep_latency_ms_sum{endpoint="/chat"} 40' in output
+    assert 'langdeep_latency_ms{endpoint="/chat",quantile="0.5"} 10' in output
+    assert 'langdeep_latency_ms_avg{endpoint="/chat"} 20' in output
+
+
+def test_prometheus_exporter_sanitizes_names_labels_and_values():
+    snapshot = {
+        "counters": {'9 bad.name|bad-label=a"b,route=/chat\nv1': 1},
+        "gauges": {},
+        "histograms": {},
+    }
+
+    output = PrometheusMetricsExporter(namespace="my.app").export(snapshot)
+
+    assert "# TYPE my_app__9_bad_name counter" in output
+    assert 'my_app__9_bad_name{bad_label="a\\"b",route="/chat\\nv1"} 1' in output
+
+
+def test_prometheus_exporter_allows_empty_namespace():
+    output = export_prometheus_metrics(
+        {"counters": {"requests": 1}, "gauges": {}, "histograms": {}},
+        namespace="",
+    )
+
+    assert "# TYPE requests counter" in output
+    assert "requests 1" in output
