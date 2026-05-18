@@ -2,6 +2,8 @@
 
 <!-- 这个 PR 解决什么问题？关联 issue，例如 Closes #123。 -->
 
+Related issue:
+
 ## 目标 / Goal
 
 <!-- 本次变更希望达成什么结果？ -->
@@ -25,11 +27,13 @@
 
 ## 验收标准 / Acceptance criteria
 
-<!-- 对照 issue 的验收标准逐项说明。 -->
+<!-- 对照 issue 的验收标准逐项说明，每一项写明已完成或不适用原因。 -->
+
+- [ ] 
 
 ## 测试 / Tests
 
-请粘贴你实际运行过的命令：
+请粘贴你实际运行过的命令和结果。未运行的检查请说明原因：
 
 ```bash
 python -m ruff check src tests
@@ -48,8 +52,13 @@ python -m build --no-isolation
 
 ## 风险 / Risks
 
-<!-- 兼容性、安全、性能、运维风险。没有请写“无明显风险”。 -->
+<!-- 说明兼容性、安全、性能、运维风险。没有请写“无明显风险”。 -->
+
+- Compatibility:
+- Security/privacy:
+- Performance/operations:
+- Rollback plan:
 
 ## 备注 / Notes for reviewers
 
-<!-- 需要 reviewer 特别关注的地方。 -->
+<!-- 需要 reviewer 特别关注的地方，例如复杂逻辑、迁移影响、测试盲区。 -->
