@@ -693,6 +693,22 @@ def session_memory():
 
 If the factory returns `None`, the decorator creates an `InMemoryBackend`.
 
+Use `SQLiteMemoryBackend` for lightweight single-node persistence without
+additional dependencies:
+
+```python
+from langdeep import SQLiteMemoryBackend, memory
+
+
+@memory(name="sqlite_sessions", description="SQLite conversation storage")
+def sqlite_sessions():
+    return SQLiteMemoryBackend(database_path="./langdeep_sessions.sqlite3")
+```
+
+The backend stores serialized message entries in a `memory_entries` table keyed
+by `session_id` and `message_idx`. Repeated `store_messages()` calls append to
+the existing session history.
+
 Custom backends should implement `BaseMemoryBackend`:
 
 - `store_entry(session_id, entry)`
