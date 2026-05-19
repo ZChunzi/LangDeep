@@ -65,7 +65,13 @@ from .secrets import (
     secrets_manager,
 )
 from .observability import HealthStatus, HealthChecker, MetricsCollector
-from .diagnostics import DiagnosticIssue, RuntimeDiagnostics, RuntimeValidator, validate_runtime
+from .diagnostics import (
+    DiagnosticIssue,
+    RuntimeDiagnostics,
+    RuntimeValidator,
+    build_doctor_report,
+    validate_runtime,
+)
 from .tools import PolicyAwareTool, ToolAuditLog, ToolExecutionPolicy, ToolExecutionRecord
 from langdeep.messages import (
     AssistantMessage,
@@ -154,6 +160,7 @@ __all__ = [
     "MetricsCollector",
     # Diagnostics
     "DiagnosticIssue",
+    "build_doctor_report",
     "RuntimeDiagnostics",
     "RuntimeValidator",
     "validate_runtime",

@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, Optional
 
 from langdeep import __version__
 from langdeep.core.cache.registry import cache_registry
-from langdeep.core.diagnostics import validate_runtime
+from langdeep.core.diagnostics import build_doctor_report, validate_runtime
 from langdeep.core.im.registry import im_channel_registry
 from langdeep.core.memory.registry import memory_registry
 from langdeep.core.observability import HealthChecker
@@ -65,6 +65,34 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     diagnostics.set_defaults(handler=_handle_diagnostics)
 
+    doctor = subparsers.add_parser(
+        "doctor",
+        help="Run environment, dependency, registry, health, and security diagnostics.",
+    )
+    doctor.add_argument(
+        "--strict",
+        action="store_true",
+        help="Return a non-zero exit code when warnings are present.",
+    )
+    doctor.add_argument(
+        "--format",
+        choices=("json", "text"),
+        default="json",
+        help="Output format.",
+    )
+    doctor.add_argument(
+        "--timeout",
+        type=int,
+        default=5,
+        help="Maximum seconds per individual health probe.",
+    )
+    doctor.add_argument(
+        "--no-instantiate-agents",
+        action="store_true",
+        help="Skip agent instantiation during runtime diagnostics.",
+    )
+    doctor.set_defaults(handler=_handle_doctor)
+
     registry_list = subparsers.add_parser("list", help="List registered LangDeep components.")
     registry_list.add_argument(
         "registry",
@@ -92,6 +120,19 @@ def _handle_diagnostics(args: argparse.Namespace) -> int:
     return 0 if diagnostics.ok else 1
 
 
+def _handle_doctor(args: argparse.Namespace) -> int:
+    payload = build_doctor_report(
+        strict=args.strict,
+        instantiate_agents=not args.no_instantiate_agents,
+        timeout=args.timeout,
+    )
+    if args.format == "text":
+        _print_doctor_text(payload)
+    else:
+        _print_json(payload)
+    return 0 if payload["ok"] else 1
+
+
 def _handle_list(args: argparse.Namespace) -> int:
     payload = _registry_snapshot()
     if args.registry != "all":
@@ -115,6 +156,20 @@ def _registry_snapshot() -> Dict[str, Any]:
 
 def _print_json(payload: Any) -> None:
     print(json.dumps(_json_ready(payload), ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _print_doctor_text(payload: Dict[str, Any]) -> None:
+    print(f"LangDeep doctor: {payload['status']}")
+    print(f"Python: {payload['environment']['python']}")
+    print(f"Errors: {payload['error_count']}")
+    print(f"Warnings: {payload['warning_count']}")
+    print("Registries:")
+    for name, values in payload["registries"].items():
+        print(f"- {name}: {len(values)}")
+    if payload["issues"] or payload["diagnostics"]["issues"]:
+        print("Issues:")
+        for issue in payload["diagnostics"]["issues"] + payload["issues"]:
+            print(f"- {issue['severity']} {issue['component']}/{issue['name']}: {issue['message']}")
 
 
 def _json_ready(value: Any) -> Any:
