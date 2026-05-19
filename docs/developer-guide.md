@@ -978,18 +978,22 @@ fail_under = 90
 
 ## 29. Release Checklist
 
-Before tagging a release:
+The full release process lives in `docs/release-checklist.md`. Before tagging a
+release:
 
 1. Update `pyproject.toml` version.
 2. Update `src/__init__.py` `__version__`.
 3. Update README and docs version references.
-4. Run `python -m ruff check src tests`.
-5. Run `python -m pytest --cov --cov-report=term-missing --cov-report=xml`.
-6. Run `python tests/run_all.py`.
-7. Run `python -m compileall -q src tests`.
-8. Run `python -m build --no-isolation`.
-9. Commit the release changes.
-10. Create and push the tag.
+4. Update `CHANGELOG.md`.
+5. Run `python -m ruff check src tests docs examples README.md README.zh-CN.md SECURITY.md pyproject.toml`.
+6. Run `python -m pytest --cov=src --cov-report=term-missing --cov-report=xml`.
+7. Run `python tests/run_all.py`.
+8. Run `python -m compileall -q src tests examples`.
+9. Run `python -m build --no-isolation`.
+10. Run `python -m twine check dist/*`.
+11. Publish to TestPyPI through GitHub Actions workflow dispatch.
+12. Create and push an annotated `v*` tag for PyPI trusted publishing.
+13. Verify PyPI install and create GitHub release notes.
 
 ## 30. Enterprise Deployment Guidance
 
