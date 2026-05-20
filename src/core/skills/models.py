@@ -1,6 +1,7 @@
 """Core skill contracts for low-coupling capability packages."""
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from ..errors import ConfigurationError, SkillError
@@ -15,6 +16,25 @@ VALID_CAPABILITY_KINDS = {
     "mcp",
     "a2a",
 }
+
+
+class SkillLifecycleState(str, Enum):
+    """Lifecycle state for a registered skill."""
+
+    LOADED = "loaded"
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+    FAILED = "failed"
+    UNLOADED = "unloaded"
+
+
+class SkillHealthStatus(str, Enum):
+    """Health status returned by a skill health hook."""
+
+    HEALTHY = "healthy"
+    WARNING = "warning"
+    UNHEALTHY = "unhealthy"
+    UNKNOWN = "unknown"
 
 
 @dataclass
@@ -217,6 +237,37 @@ class SkillContext:
             )
 
 
+@dataclass
+class SkillHealth:
+    """Serializable health result for a skill."""
+
+    status: SkillHealthStatus = SkillHealthStatus.UNKNOWN
+    message: str = ""
+    details: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.status = normalize_health_status(self.status)
+        self.message = self.message or ""
+        self.details = dict(self.details or {})
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SkillHealth":
+        """Build a health result from a dictionary."""
+        return cls(
+            status=data.get("status", SkillHealthStatus.UNKNOWN),
+            message=data.get("message", ""),
+            details=dict(data.get("details") or {}),
+        )
+
+    def as_dict(self) -> Dict[str, Any]:
+        """Return a JSON-serializable health result."""
+        return {
+            "status": self.status.value,
+            "message": self.message,
+            "details": dict(self.details),
+        }
+
+
 class Skill:
     """Base class for reusable LangDeep capabilities."""
 
@@ -249,6 +300,11 @@ class Skill:
     def deactivate(self, context: Optional[SkillContext] = None) -> None:
         """Deactivate the skill and release runtime state."""
         self._active = False
+
+    def health(self, context: Optional[SkillContext] = None) -> SkillHealth:
+        """Return skill health. Override for dependency checks."""
+        status = SkillHealthStatus.HEALTHY if self._active else SkillHealthStatus.UNKNOWN
+        return SkillHealth(status=status)
 
     def get_adapters(self) -> SkillAdapters:
         """Return the adapters exposed by the last activation."""
@@ -285,6 +341,50 @@ def normalize_adapters(value: Optional[Any], skill: Skill) -> SkillAdapters:
         "Skill activation must return SkillAdapters, a mapping, or None",
         context={"actual": type(value).__name__, "skill": skill.manifest.name},
     )
+
+
+def normalize_health(value: Optional[Any]) -> SkillHealth:
+    """Normalize health hook return values into ``SkillHealth``."""
+    if value is None:
+        return SkillHealth()
+    if isinstance(value, SkillHealth):
+        return value
+    if isinstance(value, dict):
+        return SkillHealth.from_dict(value)
+    if isinstance(value, str):
+        return SkillHealth(status=value)
+    raise SkillError(
+        "Skill health hook must return SkillHealth, a mapping, a status string, or None",
+        context={"actual": type(value).__name__},
+    )
+
+
+def normalize_lifecycle_state(value: Any) -> SkillLifecycleState:
+    """Normalize lifecycle state aliases and enum values."""
+    if isinstance(value, SkillLifecycleState):
+        return value
+    try:
+        return SkillLifecycleState(str(value).strip().lower())
+    except ValueError as exc:
+        raise ConfigurationError(
+            f"Unsupported skill lifecycle state '{value}'",
+            context={"supported": [item.value for item in SkillLifecycleState]},
+            cause=exc,
+        )
+
+
+def normalize_health_status(value: Any) -> SkillHealthStatus:
+    """Normalize health status aliases and enum values."""
+    if isinstance(value, SkillHealthStatus):
+        return value
+    try:
+        return SkillHealthStatus(str(value).strip().lower())
+    except ValueError as exc:
+        raise ConfigurationError(
+            f"Unsupported skill health status '{value}'",
+            context={"supported": [item.value for item in SkillHealthStatus]},
+            cause=exc,
+        )
 
 
 def _require_text(value: Any, field_name: str) -> str:

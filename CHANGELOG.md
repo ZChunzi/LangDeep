@@ -15,6 +15,17 @@ and this project uses semantic versioning where practical.
 
 - Nothing yet.
 
+## [2.0.16] - 2026-05-20
+
+### Added
+
+- Skill lifecycle states for plugin governance: `loaded`, `enabled`,
+  `disabled`, `failed`, and `unloaded`.
+- Skill registry lifecycle APIs: `enable()`, `disable()`, `unload()`,
+  `get_lifecycle_state()`, `get_failure_reason()`, and `check_health()`.
+- `SkillHealth`, `SkillHealthStatus`, and `SkillLifecycleState` exports for
+  health hooks and lifecycle-aware service integrations.
+
 ## [2.0.15] - 2026-05-20
 
 ### Added

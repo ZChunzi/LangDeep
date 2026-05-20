@@ -1,6 +1,6 @@
 # LangDeep Developer Guide
 
-Version: `2.0.15`
+Version: `2.0.16`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
@@ -86,7 +86,7 @@ Current package version is exposed as:
 ```python
 import langdeep
 
-assert langdeep.__version__ == "2.0.15"
+assert langdeep.__version__ == "2.0.16"
 ```
 
 The installed package also exposes a small CLI for local runtime checks:
@@ -1028,7 +1028,7 @@ Health checks:
 from langdeep import HealthChecker
 
 
-status = HealthChecker(version="2.0.15").check_all()
+status = HealthChecker(version="2.0.16").check_all()
 print(status.status)
 print(status.checks)
 ```
@@ -1190,7 +1190,27 @@ except Exception as exc:
     raise
 ```
 
-## 27. Protocol Adapters
+## 27. Skill Lifecycle
+
+Skills expose a lightweight lifecycle contract for plugin governance. A
+registered skill starts as `loaded`, moves to `enabled` when activated, moves to
+`disabled` when deactivated, moves to `failed` when activation or health checks
+raise, and can be marked `unloaded` after its factory and adapters are removed.
+
+```python
+from langdeep.core.skills import SkillContext, SkillLifecycleState, skill_registry
+
+skill_registry.enable("enterprise_search", SkillContext(tenant_id="acme"))
+assert skill_registry.get_lifecycle_state("enterprise_search") is SkillLifecycleState.ENABLED
+
+health = skill_registry.check_health("enterprise_search")
+skill_registry.disable("enterprise_search")
+```
+
+Override `Skill.health()` for dependency checks such as credentials, remote
+service reachability, cache readiness, or optional package availability.
+
+## 28. Protocol Adapters
 
 `langdeep.core.protocols` provides protocol-neutral contracts for MCP, A2A, and
 custom integrations. The core module only owns declarations, registration, and
@@ -1221,7 +1241,7 @@ registry = ProtocolRegistry.for_namespace("tenant-a")
 endpoint = make_a2a_endpoint("support-agent", url="https://agents.example/a2a")
 ```
 
-## 28. Logging And Trace Context
+## 29. Logging And Trace Context
 
 Logging helpers:
 
@@ -1231,7 +1251,7 @@ Logging helpers:
 
 `FlowOrchestrator.invoke()` creates a trace context and clears it after completion. Logs use structured `extra` fields extensively.
 
-## 29. Testing
+## 30. Testing
 
 Run full pytest suite with coverage:
 
@@ -1270,7 +1290,7 @@ Current coverage gate is configured in `pyproject.toml`:
 fail_under = 90
 ```
 
-## 30. Release Checklist
+## 31. Release Checklist
 
 The full release process lives in `docs/release-checklist.md`. Before tagging a
 release:
@@ -1289,7 +1309,7 @@ release:
 12. Create and push an annotated `v*` tag for PyPI trusted publishing.
 13. Verify PyPI install and create GitHub release notes.
 
-## 31. Enterprise Deployment Guidance
+## 32. Enterprise Deployment Guidance
 
 Recommended minimum production controls:
 
@@ -1305,7 +1325,7 @@ Recommended minimum production controls:
 - Export `MetricsCollector` snapshots or wrap metrics with your standard telemetry system.
 - Keep provider SDK versions pinned in application deployments.
 
-## 32. Known Boundaries
+## 33. Known Boundaries
 
 - Registries are in-process singletons; they are not distributed registries.
 - `ainvoke()` uses native async graph or agent APIs when available, and falls back
@@ -1319,7 +1339,7 @@ Recommended minimum production controls:
   network boundary controls.
 - Provider SDK imports happen when corresponding model instances are created.
 
-## 33. Minimal Smoke Test
+## 34. Minimal Smoke Test
 
 Use this as a no-network smoke test for a fresh checkout:
 

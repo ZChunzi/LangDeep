@@ -32,6 +32,9 @@ from langdeep.core.skills import (
     SkillAdapters,
     SkillCapability,
     SkillContext,
+    SkillHealth,
+    SkillHealthStatus,
+    SkillLifecycleState,
     SkillManifest,
     SkillRegistry,
     load_skill_manifest,
@@ -128,7 +131,7 @@ from langdeep.messages import (
     user_message,
 )
 
-__version__ = "2.0.15"
+__version__ = "2.0.16"
 
 
 def register_provider(name: str, factory: Callable[[ModelConfig], BaseChatModel]) -> Callable[[ModelConfig], BaseChatModel]:
@@ -186,6 +189,9 @@ __all__ = [
     "SkillAdapters",
     "SkillCapability",
     "SkillContext",
+    "SkillHealth",
+    "SkillHealthStatus",
+    "SkillLifecycleState",
     "SkillManifest",
     "SkillRegistry",
     "load_skill_manifest",

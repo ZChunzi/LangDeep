@@ -7,6 +7,9 @@ from langdeep import (
     SkillAdapters,
     SkillCapability,
     SkillContext,
+    SkillHealth,
+    SkillHealthStatus,
+    SkillLifecycleState,
     SkillManifest,
     SkillRegistry,
     load_skill_manifest,
@@ -60,6 +63,13 @@ class ExampleSkill(Skill):
         self.deactivated = True
         super().deactivate(context)
 
+    def health(self, context=None):
+        return SkillHealth(
+            status=SkillHealthStatus.HEALTHY,
+            message="ready",
+            details={"validated": self.validated},
+        )
+
 
 def test_skill_manifest_validates_and_round_trips():
     manifest = SkillManifest.from_dict(
@@ -99,6 +109,7 @@ def test_skill_registry_is_low_coupling_until_activation():
     registry.register("example", ExampleSkill)
 
     assert registry.list_skills() == ["example"]
+    assert registry.get_lifecycle_state("example") is SkillLifecycleState.LOADED
     assert tool_registry.list_tools() == []
 
     manifest = registry.get_manifest("example")
@@ -117,6 +128,7 @@ def test_skill_registry_is_low_coupling_until_activation():
 
     assert "lookup" in adapters.tools
     assert registry.get_active_adapters("example") is adapters
+    assert registry.get_lifecycle_state("example") is SkillLifecycleState.ENABLED
     assert registry.get_skill("example").validated is True
     assert registry.get_skill("example").active is True
     assert tool_registry.list_tools() == []
@@ -128,9 +140,49 @@ def test_skill_registry_is_low_coupling_until_activation():
 
     registry.deactivate("example", SkillContext(namespace="tenant-a", audit_sink=audit_events))
     assert registry.get_active_adapters("example") is None
+    assert registry.get_lifecycle_state("example") is SkillLifecycleState.DISABLED
     assert registry.get_skill("example").deactivated is True
     assert registry.get_skill("example").active is False
     assert audit_events[-1]["event_type"] == "skill.deactivate"
+
+
+def test_skill_lifecycle_health_and_unload():
+    audit_events = []
+    registry = SkillRegistry.for_namespace("tenant-lifecycle")
+    registry.register("example", ExampleSkill)
+
+    health = registry.check_health("example", SkillContext(audit_sink=audit_events))
+    assert health.status is SkillHealthStatus.HEALTHY
+    assert health.message == "ready"
+    assert audit_events[-1]["event_type"] == "skill.health"
+
+    registry.enable("example")
+    assert registry.get_lifecycle_state("example") is SkillLifecycleState.ENABLED
+
+    registry.disable("example")
+    assert registry.get_lifecycle_state("example") is SkillLifecycleState.DISABLED
+
+    registry.unload("example", SkillContext(audit_sink=audit_events))
+    assert registry.list_skills() == []
+    assert registry.get_lifecycle_state("example") is SkillLifecycleState.UNLOADED
+    assert registry.snapshot()["lifecycle"]["example"] == "unloaded"
+    assert audit_events[-1]["event_type"] == "skill.unload"
+
+
+def test_skill_lifecycle_tracks_activation_failure():
+    class FailingSkill(ExampleSkill):
+        def activate(self, context=None):
+            raise RuntimeError("missing dependency")
+
+    registry = SkillRegistry.for_namespace("tenant-failure")
+    registry.register("example", FailingSkill)
+
+    with pytest.raises(RuntimeError, match="missing dependency"):
+        registry.activate("example")
+
+    assert registry.get_lifecycle_state("example") is SkillLifecycleState.FAILED
+    assert registry.get_failure_reason("example") == "missing dependency"
+    assert registry.snapshot()["failures"]["example"] == "missing dependency"
 
 
 def test_skill_registry_namespaces_and_duplicate_rejection():
