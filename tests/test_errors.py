@@ -11,6 +11,7 @@ from langdeep.core.errors import (
     ModelInvocationError, ModelTimeoutError,
     AgentError, AgentNotFoundError, AgentInvocationError, AgentRetryExhaustedError,
     ToolError, ToolNotFoundError,
+    SkillError, SkillNotFoundError,
     ExecutionError, TaskExecutionError, CircularDependencyError,
     OrchestrationError, RoutingError, PlannerError, AggregatorError,
     TemplateError, TemplateNotFoundError, PromptNotFoundError,
@@ -61,6 +62,12 @@ def test_tool_errors():
     assert issubclass(ToolNotFoundError, ToolError)
     e = ToolNotFoundError("missing tool")
     assert e.code == "TOOL_NOT_FOUND"
+
+
+def test_skill_errors():
+    assert issubclass(SkillNotFoundError, SkillError)
+    e = SkillNotFoundError("missing skill")
+    assert e.code == "SKILL_NOT_FOUND"
 
 
 def test_execution_errors():

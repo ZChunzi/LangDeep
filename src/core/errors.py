@@ -147,6 +147,18 @@ class ToolTimeoutError(ToolPolicyError):
     code = "TOOL_TIMEOUT"
 
 
+# ── Skill errors ─────────────────────────────────────────────────────────────────
+
+class SkillError(LangDeepError):
+    """Base for skill-related errors."""
+    code = "SKILL_ERROR"
+
+
+class SkillNotFoundError(SkillError):
+    """Requested skill is not registered."""
+    code = "SKILL_NOT_FOUND"
+
+
 # ── Execution errors ─────────────────────────────────────────────────────────────
 
 class ExecutionError(LangDeepError):

@@ -14,7 +14,9 @@ Priority themes:
 4. Provider compatibility
 5. Persistence backends
 6. Tool governance and auditability
-7. Observability and diagnostics
+7. Observability, diagnostics, and auditability
+8. Production service boundary guidance
+9. Plugin and skill governance
 
 ## Phase 1 — Contributor readiness
 
@@ -25,7 +27,7 @@ Priority themes:
 - [x] Add security policy
 - [x] Add Dependabot configuration
 - [x] Add CodeQL workflow
-- [ ] Ensure CI is stable across supported Python versions
+- [x] Ensure CI is stable across supported Python versions
 - [ ] Add more `good first issue` tasks
 - [ ] Add contributor-friendly examples
 
@@ -41,37 +43,57 @@ Priority themes:
 ## Phase 3 — Examples and docs
 
 - [ ] Add `examples/basic_mock_agent.py`
-- [ ] Add enterprise customer service workflow example
+- [x] Add enterprise customer service workflow example
 - [ ] Add provider examples for OpenAI, DeepSeek, and Ollama
 - [ ] Add memory/cache backend examples
-- [ ] Add FastAPI integration example
+- [x] Add FastAPI integration example
 - [ ] Keep README, README.zh-CN, and developer guide synchronized
 
 ## Phase 4 — Persistence and operations
 
-- [ ] Redis memory backend
-- [ ] SQLite memory backend
-- [ ] File-backed cache backend
-- [ ] Prometheus metrics exporter
-- [ ] OpenTelemetry tracing adapter
-- [ ] Structured audit log sink
+- [x] Redis memory backend
+- [x] SQLite memory backend
+- [x] File-backed cache backend
+- [x] Prometheus metrics exporter
+- [x] OpenTelemetry tracing adapter
+- [x] Structured audit log sink
+- [ ] External durable checkpointer adapter
+- [ ] Durable process state backend
+- [ ] Idempotency keys for workflow and task execution
 
 ## Phase 5 — Security and sandboxing
 
-- [ ] Document safe tool policy patterns
-- [ ] Add Docker/container sandbox backend prototype
+- [x] Document safe tool policy patterns
+- [x] Add Docker/container sandbox backend prototype
 - [ ] Add stricter workspace policy examples
 - [ ] Add security-focused tests for tool policy and sandbox boundaries
 - [ ] Improve secret provider documentation
 
 ## Phase 6 — Release maturity
 
-- [ ] Formal release checklist
-- [ ] CHANGELOG.md
+- [x] Formal release checklist
+- [x] CHANGELOG.md
 - [ ] CODEOWNERS after maintainers are added
-- [ ] PyPI trusted publishing
+- [x] PyPI trusted publishing
 - [ ] Tag protection for `v*` release tags
 - [ ] Optional docs site
+
+## Phase 7 — Enterprise substrate and plugin governance
+
+- [x] Low-coupling skill manifest and registry module
+- [x] In-memory and JSONL audit sink foundation
+- [ ] Production FastAPI starter with auth, rate limits, audit middleware, and metrics
+- [ ] Plugin lifecycle states: loaded, enabled, disabled, failed, unloaded
+- [ ] Registry namespace unification across all registries
+- [ ] Orchestrator reload/rebuild API for dynamic component changes
+- [ ] Workflow plan versioning and execution snapshots
+
+## Phase 8 — Protocol ecosystem
+
+- [ ] MCP client adapter behind policy and audit controls
+- [ ] MCP server adapter for selected LangDeep tools, prompts, resources, and skills
+- [ ] A2A Agent Card generation and synchronous task support
+- [ ] A2A client wrapper for remote agents under policy control
 
 ## Not planned without design review
 

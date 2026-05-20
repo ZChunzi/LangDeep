@@ -8,7 +8,7 @@ LangDeep provides lightweight runtime inspection tools.
 from langdeep import HealthChecker
 
 
-status = HealthChecker(version="2.0.13").check_all()
+status = HealthChecker(version="2.0.14").check_all()
 print(status.status)
 ```
 

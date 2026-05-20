@@ -27,6 +27,18 @@ from langdeep.core.decorators import memory, cache, im_channel
 from langdeep.core.memory import RedisMemoryBackend, SQLiteMemoryBackend
 from langdeep.core.registry.model_registry import ModelConfig, provider_registry
 from langdeep.core.sandbox import BaseSandbox, DockerSandbox, SubprocessSandbox, sandbox_registry, sandbox
+from langdeep.core.skills import (
+    Skill,
+    SkillAdapters,
+    SkillCapability,
+    SkillContext,
+    SkillManifest,
+    SkillRegistry,
+    load_skill_manifest,
+    load_skill_manifest_file,
+    skill,
+    skill_registry,
+)
 from langdeep.core.process import ProcessManager, ProcessState
 from langdeep.core.secrets import secrets_manager, EnvSecretsProvider
 from langdeep.core.observability import (
@@ -54,6 +66,14 @@ from langdeep.core.adapters.deepseek import (
     extract_reasoning_content,
     normalize_deepseek_messages,
 )
+from langdeep.core.audit import (
+    AuditEvent,
+    AuditSink,
+    InMemoryAuditSink,
+    JsonlAuditSink,
+    make_audit_event,
+    redact_audit_payload,
+)
 from langdeep.core.planner import WorkflowPlanner, WorkflowNode, NodeType
 from langdeep.core.tools import PolicyAwareTool, ToolAuditLog, ToolExecutionPolicy, ToolExecutionRecord
 from langdeep.schemas import WorkflowPlan, WorkflowTask, validate_workflow_plan
@@ -71,6 +91,8 @@ from langdeep.core.errors import (
     ToolConfirmationRequired,
     ToolWorkspaceError,
     ToolTimeoutError,
+    SkillError,
+    SkillNotFoundError,
     ExecutionError,
     OrchestrationError,
 )
@@ -88,7 +110,7 @@ from langdeep.messages import (
     user_message,
 )
 
-__version__ = "2.0.13"
+__version__ = "2.0.14"
 
 
 def register_provider(name: str, factory: Callable[[ModelConfig], BaseChatModel]) -> Callable[[ModelConfig], BaseChatModel]:
@@ -141,11 +163,29 @@ __all__ = [
     "SQLiteMemoryBackend",
     "cache",
     "im_channel",
+    # Skills
+    "Skill",
+    "SkillAdapters",
+    "SkillCapability",
+    "SkillContext",
+    "SkillManifest",
+    "SkillRegistry",
+    "load_skill_manifest",
+    "load_skill_manifest_file",
+    "skill",
+    "skill_registry",
     # Execution
     "ExecutionPolicy",
     "BaseAgentBuilder",
     "ReActAgentBuilder",
     "agent_builder_registry",
+    # Enterprise audit
+    "AuditEvent",
+    "AuditSink",
+    "InMemoryAuditSink",
+    "JsonlAuditSink",
+    "make_audit_event",
+    "redact_audit_payload",
     # Planner
     "WorkflowPlanner",
     "WorkflowNode",
@@ -167,6 +207,8 @@ __all__ = [
     "ToolConfirmationRequired",
     "ToolWorkspaceError",
     "ToolTimeoutError",
+    "SkillError",
+    "SkillNotFoundError",
     "ExecutionError",
     "OrchestrationError",
     # Logging

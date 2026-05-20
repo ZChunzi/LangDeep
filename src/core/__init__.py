@@ -13,6 +13,8 @@ from .errors import (
     ModelNotFoundError,
     AgentNotFoundError,
     ToolNotFoundError,
+    SkillError,
+    SkillNotFoundError,
     ExecutionError,
     OrchestrationError,
 )
@@ -41,6 +43,14 @@ from .im import (
     PlatformType,
 )
 from .scheduling import WorkerPool, TaskStore, AuditLog
+from .audit import (
+    AuditEvent,
+    AuditSink,
+    InMemoryAuditSink,
+    JsonlAuditSink,
+    make_audit_event,
+    redact_audit_payload,
+)
 from .sandbox import (
     BaseSandbox,
     SandboxResult,
@@ -51,6 +61,18 @@ from .sandbox import (
     SandboxError,
     SandboxTimeoutError,
     SandboxImportError,
+)
+from .skills import (
+    Skill,
+    SkillAdapters,
+    SkillCapability,
+    SkillContext,
+    SkillManifest,
+    SkillRegistry,
+    load_skill_manifest,
+    load_skill_manifest_file,
+    skill,
+    skill_registry,
 )
 from .process import (
     ProcessState,
@@ -108,6 +130,8 @@ __all__ = [
     "ModelNotFoundError",
     "AgentNotFoundError",
     "ToolNotFoundError",
+    "SkillError",
+    "SkillNotFoundError",
     "ExecutionError",
     "OrchestrationError",
     # Memory
@@ -135,6 +159,13 @@ __all__ = [
     "WorkerPool",
     "TaskStore",
     "AuditLog",
+    # Enterprise audit
+    "AuditEvent",
+    "AuditSink",
+    "InMemoryAuditSink",
+    "JsonlAuditSink",
+    "make_audit_event",
+    "redact_audit_payload",
     # Sandbox
     "BaseSandbox",
     "SandboxResult",
@@ -145,6 +176,17 @@ __all__ = [
     "SandboxError",
     "SandboxTimeoutError",
     "SandboxImportError",
+    # Skills
+    "Skill",
+    "SkillAdapters",
+    "SkillCapability",
+    "SkillContext",
+    "SkillManifest",
+    "SkillRegistry",
+    "load_skill_manifest",
+    "load_skill_manifest_file",
+    "skill",
+    "skill_registry",
     # Process
     "ProcessState",
     "ProcessSignal",

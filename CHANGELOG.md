@@ -9,13 +9,33 @@ and this project uses semantic versioning where practical.
 
 ### Added
 
-- Formal release checklist in `docs/release-checklist.md`.
-- Trusted publishing workflow guidance for TestPyPI and PyPI.
+- Nothing yet.
 
 ### Changed
 
-- CI and release automation now document coverage, build, and artifact
-  validation expectations.
+- Nothing yet.
+
+## [2.0.14] - 2026-05-20
+
+### Added
+
+- Low-coupling `langdeep.core.skills` module with manifest, runtime context,
+  namespace-aware registry, decorator, and JSON/YAML manifest loaders.
+- Enterprise audit foundation in `langdeep.core.audit`, including structured
+  audit events, in-memory and JSONL sinks, and recursive sensitive-field
+  redaction.
+- Runtime `requirements.txt` generated from the core `pyproject.toml`
+  dependencies.
+
+### Changed
+
+- CI now enables pip caching for Python setup steps.
+- `.gitignore` now ignores only the repository-root `/workflows/` directory so
+  `.github/workflows` remains trackable.
+
+### Fixed
+
+- Removed unresolved merge markers from `tests/test_observability.py`.
 
 ## [2.0.13] - 2026-05-18
 

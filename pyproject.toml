@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langdeep"
-version = "2.0.13"
+version = "2.0.14"
 description = "LangChain + LangGraph Agent Workflow Framework"
 readme = "README.md"
 license = "MIT"
@@ -83,11 +83,13 @@ packages = [
     "langdeep.core.scheduling",
     "langdeep.core.execution",
     "langdeep.core.coordination",
+    "langdeep.core.audit",
     "langdeep.core.memory",
     "langdeep.core.cache",
     "langdeep.core.im",
     "langdeep.core.adapters",
     "langdeep.core.sandbox",
+    "langdeep.core.skills",
     "langdeep.core.process",
     "langdeep.core.secrets",
     "langdeep.core.observability",
