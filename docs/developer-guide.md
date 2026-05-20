@@ -794,6 +794,31 @@ def session_memory():
 
 If the factory returns `None`, the decorator creates an `InMemoryBackend`.
 
+Use `RedisMemoryBackend` when session history must survive process restarts or
+be shared across multiple application workers. The Redis client dependency is
+optional:
+
+```bash
+pip install -e ".[redis]"
+```
+
+```python
+from langdeep import RedisMemoryBackend, memory
+
+
+@memory(name="redis_sessions", description="Redis conversation storage")
+def redis_sessions():
+    return RedisMemoryBackend(
+        redis_url="redis://localhost:6379/0",
+        key_prefix="myapp:langdeep:memory",
+        ttl_seconds=7 * 24 * 60 * 60,
+    )
+```
+
+The backend stores serialized message entries in Redis lists and keeps a Redis
+set of known session IDs. Tests can pass a compatible fake client through the
+`client=` argument, so unit tests do not need a real Redis service.
+
 Use `SQLiteMemoryBackend` for lightweight single-node persistence without
 additional dependencies:
 

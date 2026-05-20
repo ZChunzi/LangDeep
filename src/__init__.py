@@ -24,7 +24,7 @@ from langdeep.core.decorators.tool import register_tool, regist_tool
 from langdeep.core.decorators.agent import agent
 from langdeep.core.decorators.provider import provider
 from langdeep.core.decorators import memory, cache, im_channel
-from langdeep.core.memory import SQLiteMemoryBackend
+from langdeep.core.memory import RedisMemoryBackend, SQLiteMemoryBackend
 from langdeep.core.registry.model_registry import ModelConfig, provider_registry
 from langdeep.core.sandbox import BaseSandbox, DockerSandbox, SubprocessSandbox, sandbox_registry, sandbox
 from langdeep.core.process import ProcessManager, ProcessState
@@ -137,6 +137,7 @@ __all__ = [
     "tool_message",
     "user_message",
     "memory",
+    "RedisMemoryBackend",
     "SQLiteMemoryBackend",
     "cache",
     "im_channel",
