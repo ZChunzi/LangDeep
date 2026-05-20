@@ -90,6 +90,7 @@ Priority themes:
 
 ## Phase 8 — Protocol ecosystem
 
+- [x] Low-coupling protocol registry and MCP/A2A endpoint contracts
 - [ ] MCP client adapter behind policy and audit controls
 - [ ] MCP server adapter for selected LangDeep tools, prompts, resources, and skills
 - [ ] A2A Agent Card generation and synchronous task support

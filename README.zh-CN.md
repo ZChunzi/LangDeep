@@ -13,7 +13,7 @@
 
 **语言：** [English](README.md) | 简体中文
 
-**项目状态：Beta - v2.0.14**
+**项目状态：Beta - v2.0.15**
 
 核心 API 已进入第二个大版本，适合企业内部受控试点。关键生产环境仍应先完成模型供应商、密钥、审计、沙箱、持久化和运维策略评审。
 
@@ -55,6 +55,7 @@ v2.0.0 的重点是稳健性：新增运行时诊断、增强健康检查、公�
 - **📋 任务规划与执行**：支持 LLM 动态规划、显式 `workflow_plan`、依赖排序、并发执行和重试。
 - **🔌 模型 Provider 扩展**：内置 OpenAI、Anthropic、Azure OpenAI、Ollama、Vertex AI、Google GenAI、DeepSeek、mock provider，也支持自定义 provider。
 - **🧩 企业扩展点**：可替换 `RoutingStrategy`、`PlanGenerator`、`TaskRunner`、`ResultMerger`。
+- **🔗 协议适配层**：通过 `langdeep.core.protocols` 低耦合注册 MCP、A2A 或自定义协议适配器。
 - **🗄️ 存储与缓存抽象**：支持 `@memory`、`@cache` 注册可插拔后端；LLM 响应缓存默认关闭，可显式启用。
 - **💬 IM 接入层**：提供 `@im_channel`、`WebhookReceiver`、`IMMessage`、`PlatformType` 等适配层能力。
 - **🔒 沙箱执行**：内置 `SubprocessSandbox` 和 `@sandbox`；它适合可信或半可信本地任务，不应作为不可信代码的完整安全边界。

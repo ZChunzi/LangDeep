@@ -1,6 +1,6 @@
 # LangDeep Developer Guide
 
-Version: `2.0.14`
+Version: `2.0.15`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
@@ -86,7 +86,7 @@ Current package version is exposed as:
 ```python
 import langdeep
 
-assert langdeep.__version__ == "2.0.14"
+assert langdeep.__version__ == "2.0.15"
 ```
 
 The installed package also exposes a small CLI for local runtime checks:
@@ -1028,7 +1028,7 @@ Health checks:
 from langdeep import HealthChecker
 
 
-status = HealthChecker(version="2.0.14").check_all()
+status = HealthChecker(version="2.0.15").check_all()
 print(status.status)
 print(status.checks)
 ```
@@ -1190,7 +1190,38 @@ except Exception as exc:
     raise
 ```
 
-## 27. Logging And Trace Context
+## 27. Protocol Adapters
+
+`langdeep.core.protocols` provides protocol-neutral contracts for MCP, A2A, and
+custom integrations. The core module only owns declarations, registration, and
+routing. Transport clients, servers, authentication, policy, and audit wiring
+remain application-level or adapter-level concerns.
+
+```python
+from langdeep.core.protocols import ProtocolRequest, mcp_adapter, protocol_registry
+
+
+@mcp_adapter(name="tool-server", capabilities=["tools/list"])
+def list_tools(request: ProtocolRequest):
+    return {"tools": ["search", "lookup"]}
+
+
+response = protocol_registry.invoke(
+    ProtocolRequest(protocol="mcp", operation="tools/list")
+)
+assert response.ok is True
+```
+
+Use namespaced registries for multi-tenant or multi-application processes:
+
+```python
+from langdeep.core.protocols import ProtocolRegistry, make_a2a_endpoint
+
+registry = ProtocolRegistry.for_namespace("tenant-a")
+endpoint = make_a2a_endpoint("support-agent", url="https://agents.example/a2a")
+```
+
+## 28. Logging And Trace Context
 
 Logging helpers:
 
@@ -1200,7 +1231,7 @@ Logging helpers:
 
 `FlowOrchestrator.invoke()` creates a trace context and clears it after completion. Logs use structured `extra` fields extensively.
 
-## 28. Testing
+## 29. Testing
 
 Run full pytest suite with coverage:
 
@@ -1239,7 +1270,7 @@ Current coverage gate is configured in `pyproject.toml`:
 fail_under = 90
 ```
 
-## 29. Release Checklist
+## 30. Release Checklist
 
 The full release process lives in `docs/release-checklist.md`. Before tagging a
 release:
@@ -1258,7 +1289,7 @@ release:
 12. Create and push an annotated `v*` tag for PyPI trusted publishing.
 13. Verify PyPI install and create GitHub release notes.
 
-## 30. Enterprise Deployment Guidance
+## 31. Enterprise Deployment Guidance
 
 Recommended minimum production controls:
 
@@ -1274,7 +1305,7 @@ Recommended minimum production controls:
 - Export `MetricsCollector` snapshots or wrap metrics with your standard telemetry system.
 - Keep provider SDK versions pinned in application deployments.
 
-## 31. Known Boundaries
+## 32. Known Boundaries
 
 - Registries are in-process singletons; they are not distributed registries.
 - `ainvoke()` uses native async graph or agent APIs when available, and falls back
@@ -1283,9 +1314,12 @@ Recommended minimum production controls:
 - Built-in subprocess sandbox is not sufficient for hostile code isolation.
 - Docker sandboxing depends on the host Docker daemon and its security configuration.
 - Built-in metrics are in-process snapshots, not a replacement for Prometheus/OpenTelemetry.
+- Protocol adapters are declarations and routing contracts; production MCP/A2A
+  transports still need explicit authentication, policy, audit, timeout, and
+  network boundary controls.
 - Provider SDK imports happen when corresponding model instances are created.
 
-## 32. Minimal Smoke Test
+## 33. Minimal Smoke Test
 
 Use this as a no-network smoke test for a fresh checkout:
 

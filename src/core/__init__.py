@@ -15,6 +15,8 @@ from .errors import (
     ToolNotFoundError,
     SkillError,
     SkillNotFoundError,
+    ProtocolError,
+    ProtocolAdapterNotFoundError,
     ExecutionError,
     OrchestrationError,
 )
@@ -74,6 +76,22 @@ from .skills import (
     skill,
     skill_registry,
 )
+from .protocols import (
+    FunctionProtocolAdapter,
+    ProtocolAdapter,
+    ProtocolEndpoint,
+    ProtocolRegistry,
+    ProtocolRequest,
+    ProtocolResponse,
+    ProtocolTransport,
+    ProtocolType,
+    a2a_adapter,
+    make_a2a_endpoint,
+    make_mcp_endpoint,
+    mcp_adapter,
+    protocol_adapter,
+    protocol_registry,
+)
 from .process import (
     ProcessState,
     ProcessSignal,
@@ -132,6 +150,8 @@ __all__ = [
     "ToolNotFoundError",
     "SkillError",
     "SkillNotFoundError",
+    "ProtocolError",
+    "ProtocolAdapterNotFoundError",
     "ExecutionError",
     "OrchestrationError",
     # Memory
@@ -187,6 +207,21 @@ __all__ = [
     "load_skill_manifest_file",
     "skill",
     "skill_registry",
+    # Protocols
+    "FunctionProtocolAdapter",
+    "ProtocolAdapter",
+    "ProtocolEndpoint",
+    "ProtocolRegistry",
+    "ProtocolRequest",
+    "ProtocolResponse",
+    "ProtocolTransport",
+    "ProtocolType",
+    "a2a_adapter",
+    "make_a2a_endpoint",
+    "make_mcp_endpoint",
+    "mcp_adapter",
+    "protocol_adapter",
+    "protocol_registry",
     # Process
     "ProcessState",
     "ProcessSignal",

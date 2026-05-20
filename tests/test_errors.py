@@ -12,6 +12,7 @@ from langdeep.core.errors import (
     AgentError, AgentNotFoundError, AgentInvocationError, AgentRetryExhaustedError,
     ToolError, ToolNotFoundError,
     SkillError, SkillNotFoundError,
+    ProtocolError, ProtocolAdapterNotFoundError,
     ExecutionError, TaskExecutionError, CircularDependencyError,
     OrchestrationError, RoutingError, PlannerError, AggregatorError,
     TemplateError, TemplateNotFoundError, PromptNotFoundError,
@@ -68,6 +69,12 @@ def test_skill_errors():
     assert issubclass(SkillNotFoundError, SkillError)
     e = SkillNotFoundError("missing skill")
     assert e.code == "SKILL_NOT_FOUND"
+
+
+def test_protocol_errors():
+    assert issubclass(ProtocolAdapterNotFoundError, ProtocolError)
+    e = ProtocolAdapterNotFoundError("missing protocol adapter")
+    assert e.code == "PROTOCOL_ADAPTER_NOT_FOUND"
 
 
 def test_execution_errors():

@@ -15,6 +15,15 @@ and this project uses semantic versioning where practical.
 
 - Nothing yet.
 
+## [2.0.15] - 2026-05-20
+
+### Added
+
+- Low-coupling `langdeep.core.protocols` module for MCP, A2A, and custom
+  protocol endpoint declarations, callable/class adapters, namespace-aware
+  registry routing, and decorator registration.
+- Structured `ProtocolError` and `ProtocolAdapterNotFoundError` errors.
+
 ## [2.0.14] - 2026-05-20
 
 ### Added

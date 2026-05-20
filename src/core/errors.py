@@ -159,6 +159,18 @@ class SkillNotFoundError(SkillError):
     code = "SKILL_NOT_FOUND"
 
 
+# ── Protocol errors ──────────────────────────────────────────────────────────────
+
+class ProtocolError(LangDeepError):
+    """Base for MCP/A2A/custom protocol adapter errors."""
+    code = "PROTOCOL_ERROR"
+
+
+class ProtocolAdapterNotFoundError(ProtocolError):
+    """Requested protocol adapter is not registered."""
+    code = "PROTOCOL_ADAPTER_NOT_FOUND"
+
+
 # ── Execution errors ─────────────────────────────────────────────────────────────
 
 class ExecutionError(LangDeepError):

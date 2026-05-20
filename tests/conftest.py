@@ -27,6 +27,7 @@ from langdeep.core.cache.registry import cache_registry
 from langdeep.core.im.registry import im_channel_registry
 from langdeep.core.sandbox.registry import sandbox_registry
 from langdeep.core.skills.registry import skill_registry
+from langdeep.core.protocols.registry import protocol_registry
 from langdeep.core.secrets.manager import secrets_manager
 
 
@@ -41,6 +42,7 @@ def clean_registries():
     im_channel_registry.clear()
     sandbox_registry.clear()  # clear() re-registers the built-in subprocess backend
     skill_registry.reset()
+    protocol_registry.reset()
     secrets_manager.clear()
 
 

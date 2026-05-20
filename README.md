@@ -13,7 +13,7 @@
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
-**Project Status: Beta - v2.0.14**
+**Project Status: Beta - v2.0.15**
 
 The core API has entered its second major version and is suitable for controlled internal enterprise pilots. Critical production deployments should still complete provider, secret, audit, sandbox, persistence, and operations reviews before release.
 
@@ -55,6 +55,7 @@ The focus of v2.0.0 is robustness: runtime diagnostics, stronger health checks, 
 - **📋 Planning and execution**: support LLM-generated plans, explicit `workflow_plan`, dependency ordering, concurrent execution, and retries.
 - **🔌 Provider extensibility**: built-in OpenAI, Anthropic, Azure OpenAI, Ollama, Vertex AI, Google GenAI, DeepSeek, and mock providers, with custom provider support.
 - **🧩 Enterprise extension points**: replace `RoutingStrategy`, `PlanGenerator`, `TaskRunner`, and `ResultMerger`.
+- **🔗 Protocol adapters**: register low-coupling MCP, A2A, or custom protocol adapters through `langdeep.core.protocols`.
 - **🗄️ Storage and cache abstractions**: register pluggable backends with `@memory` and `@cache`; LLM response cache is disabled by default and must be enabled explicitly.
 - **💬 IM integration layer**: provide `@im_channel`, `WebhookReceiver`, `IMMessage`, and `PlatformType` for messaging platform adapters.
 - **🔒 Sandbox execution**: built-in `SubprocessSandbox` and `@sandbox`; suitable for trusted or semi-trusted local tasks, not a complete boundary for untrusted code.

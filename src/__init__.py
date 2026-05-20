@@ -39,6 +39,22 @@ from langdeep.core.skills import (
     skill,
     skill_registry,
 )
+from langdeep.core.protocols import (
+    FunctionProtocolAdapter,
+    ProtocolAdapter,
+    ProtocolEndpoint,
+    ProtocolRegistry,
+    ProtocolRequest,
+    ProtocolResponse,
+    ProtocolTransport,
+    ProtocolType,
+    a2a_adapter,
+    make_a2a_endpoint,
+    make_mcp_endpoint,
+    mcp_adapter,
+    protocol_adapter,
+    protocol_registry,
+)
 from langdeep.core.process import ProcessManager, ProcessState
 from langdeep.core.secrets import secrets_manager, EnvSecretsProvider
 from langdeep.core.observability import (
@@ -93,6 +109,8 @@ from langdeep.core.errors import (
     ToolTimeoutError,
     SkillError,
     SkillNotFoundError,
+    ProtocolError,
+    ProtocolAdapterNotFoundError,
     ExecutionError,
     OrchestrationError,
 )
@@ -110,7 +128,7 @@ from langdeep.messages import (
     user_message,
 )
 
-__version__ = "2.0.14"
+__version__ = "2.0.15"
 
 
 def register_provider(name: str, factory: Callable[[ModelConfig], BaseChatModel]) -> Callable[[ModelConfig], BaseChatModel]:
@@ -174,6 +192,21 @@ __all__ = [
     "load_skill_manifest_file",
     "skill",
     "skill_registry",
+    # Protocols
+    "FunctionProtocolAdapter",
+    "ProtocolAdapter",
+    "ProtocolEndpoint",
+    "ProtocolRegistry",
+    "ProtocolRequest",
+    "ProtocolResponse",
+    "ProtocolTransport",
+    "ProtocolType",
+    "a2a_adapter",
+    "make_a2a_endpoint",
+    "make_mcp_endpoint",
+    "mcp_adapter",
+    "protocol_adapter",
+    "protocol_registry",
     # Execution
     "ExecutionPolicy",
     "BaseAgentBuilder",
@@ -209,6 +242,8 @@ __all__ = [
     "ToolTimeoutError",
     "SkillError",
     "SkillNotFoundError",
+    "ProtocolError",
+    "ProtocolAdapterNotFoundError",
     "ExecutionError",
     "OrchestrationError",
     # Logging
