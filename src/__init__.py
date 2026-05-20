@@ -28,7 +28,12 @@ from langdeep.core.registry.model_registry import ModelConfig, provider_registry
 from langdeep.core.sandbox import BaseSandbox, DockerSandbox, SubprocessSandbox, sandbox_registry, sandbox
 from langdeep.core.process import ProcessManager, ProcessState
 from langdeep.core.secrets import secrets_manager, EnvSecretsProvider
-from langdeep.core.observability import HealthChecker, MetricsCollector
+from langdeep.core.observability import (
+    HealthChecker,
+    MetricsCollector,
+    NoOpTracingAdapter,
+    OpenTelemetryTracingAdapter,
+)
 from langdeep.core.diagnostics import (
     build_doctor_report,
     DiagnosticIssue,
@@ -185,6 +190,8 @@ __all__ = [
     # Observability
     "HealthChecker",
     "MetricsCollector",
+    "NoOpTracingAdapter",
+    "OpenTelemetryTracingAdapter",
     "DiagnosticIssue",
     "build_doctor_report",
     "RuntimeDiagnostics",

@@ -126,13 +126,16 @@ class FlowOrchestrator:
         process_manager: Optional["ProcessManager"] = None,
         strict_component_import: bool = False,
         metrics_collector: Optional["MetricsCollector"] = None,
+        tracing_adapter: Optional[Any] = None,
     ):
         self._supervisor_model = supervisor_model
         self._max_retries = max_retries
         self._llm_timeout = llm_timeout
         self._policy = execution_policy or ExecutionPolicy()
         from ..observability import MetricsCollector
+        from ..observability import NoOpTracingAdapter
         self._metrics = metrics_collector or MetricsCollector()
+        self._tracing = tracing_adapter or NoOpTracingAdapter()
 
         # Prompt loading
         from ..prompt.prompt_loader import MarkdownPromptLoader
@@ -171,6 +174,7 @@ class FlowOrchestrator:
 
         from ..registry.tool_registry import tool_registry
         tool_registry.set_metrics_collector(self._metrics)
+        tool_registry.set_tracing_adapter(self._tracing)
 
         # Cached registrations
         self._cached_agents: Optional[List[Dict]] = None
@@ -188,6 +192,7 @@ class FlowOrchestrator:
             routing_strategy=routing_strategy,
             valid_targets=self._get_valid_targets(),
             metrics_collector=self._metrics,
+            tracing_adapter=self._tracing,
         )
 
         self._planner = Planner(
@@ -195,6 +200,7 @@ class FlowOrchestrator:
             plan_generator=plan_generator,
             prompt_loader=self._prompt_loader,
             metrics_collector=self._metrics,
+            tracing_adapter=self._tracing,
         )
 
         self._executor = Executor(
@@ -210,6 +216,7 @@ class FlowOrchestrator:
             merger=result_merger,
             prompt_loader=self._prompt_loader,
             metrics_collector=self._metrics,
+            tracing_adapter=self._tracing,
         )
 
         # Process manager (optional)
@@ -242,7 +249,12 @@ class FlowOrchestrator:
         self._metrics.counter("orchestrator.invocations", tags={"mode": "sync"})
         logger.info("Orchestrator invoke start", extra={"input_preview": input_preview})
         try:
-            result = self._graph.invoke(initial)
+            with self._tracing.start_span(
+                "langdeep.invoke",
+                {"langdeep.mode": "sync", "langdeep.input_preview": input_preview},
+            ) as span:
+                result = self._graph.invoke(initial)
+                span.set_attribute("langdeep.status", "success")
             result = self._after_execution(result)
             logger.info("Orchestrator invoke complete")
             return result
@@ -275,13 +287,18 @@ class FlowOrchestrator:
         self._metrics.counter("orchestrator.invocations", tags={"mode": "async"})
         logger.info("Orchestrator ainvoke start", extra={"input_preview": input_preview})
         try:
-            graph_ainvoke = getattr(self._graph, "ainvoke", None)
-            if callable(graph_ainvoke) and _should_use_native_async(self._graph):
-                result = await graph_ainvoke(initial)
-            elif _is_langgraph_compiled_state_graph(self._graph):
-                result = await self._arun_compiled_graph_equivalent(initial)
-            else:
-                result = self._graph.invoke(initial)
+            with self._tracing.start_span(
+                "langdeep.invoke",
+                {"langdeep.mode": "async", "langdeep.input_preview": input_preview},
+            ) as span:
+                graph_ainvoke = getattr(self._graph, "ainvoke", None)
+                if callable(graph_ainvoke) and _should_use_native_async(self._graph):
+                    result = await graph_ainvoke(initial)
+                elif _is_langgraph_compiled_state_graph(self._graph):
+                    result = await self._arun_compiled_graph_equivalent(initial)
+                else:
+                    result = self._graph.invoke(initial)
+                span.set_attribute("langdeep.status", "success")
             result = self._after_execution(result)
             logger.info("Orchestrator ainvoke complete")
             return result
@@ -314,21 +331,28 @@ class FlowOrchestrator:
         logger.info("Orchestrator astream start", extra={"input_preview": input_preview})
         try:
             graph_astream = getattr(self._graph, "astream", None)
-            if callable(graph_astream) and _should_use_native_async(self._graph):
-                async for chunk in graph_astream(initial, **kwargs):
+            with self._tracing.start_span(
+                "langdeep.invoke",
+                {"langdeep.mode": "stream", "langdeep.input_preview": input_preview},
+            ) as span:
+                if callable(graph_astream) and _should_use_native_async(self._graph):
+                    async for chunk in graph_astream(initial, **kwargs):
+                        chunk_count += 1
+                        yield chunk
+                    span.set_attribute("langdeep.status", "success")
+                    return
+
+                if _is_langgraph_compiled_state_graph(self._graph):
+                    async for chunk in self._astream_compiled_graph_equivalent(initial):
+                        chunk_count += 1
+                        yield chunk
+                    span.set_attribute("langdeep.status", "success")
+                    return
+
+                for chunk in self._graph.stream(initial, **kwargs):
                     chunk_count += 1
                     yield chunk
-                return
-
-            if _is_langgraph_compiled_state_graph(self._graph):
-                async for chunk in self._astream_compiled_graph_equivalent(initial):
-                    chunk_count += 1
-                    yield chunk
-                return
-
-            for chunk in self._graph.stream(initial, **kwargs):
-                chunk_count += 1
-                yield chunk
+                span.set_attribute("langdeep.status", "success")
         except Exception as exc:
             status = "failure"
             self._metrics.counter("orchestrator.errors", tags={"mode": "stream"})
@@ -522,13 +546,16 @@ class FlowOrchestrator:
                 max_retries=self._max_retries,
                 clean_messages_fn=_clean_messages,
             )
-            self._agent_nodes[name] = node_fn
-            graph.add_node(name, node_fn)
+            traced_node = self._wrap_graph_node(name, node_fn)
+            self._agent_nodes[name] = traced_node
+            graph.add_node(name, traced_node)
 
         # Custom nodes
         custom_names = []
-        for node_name, node_fn in self._custom_nodes.items():
-            graph.add_node(node_name, node_fn)
+        for node_name, node_fn in list(self._custom_nodes.items()):
+            traced_node = self._wrap_graph_node(node_name, node_fn)
+            self._custom_nodes[node_name] = traced_node
+            graph.add_node(node_name, traced_node)
             custom_names.append(node_name)
             logger.info("Custom node registered", extra={"node_name": node_name})
 
@@ -557,6 +584,12 @@ class FlowOrchestrator:
             return graph.compile(checkpointer=self._checkpointer)
         return graph.compile()
 
+    def _wrap_graph_node(self, node_name: str, node_fn: Callable) -> Callable:
+        def traced_node(state: Dict[str, Any]) -> Dict[str, Any]:
+            return self._run_traced_node(node_name, node_fn, state)
+
+        return traced_node
+
     # ── Node: Supervisor ──────────────────────────────────────────────────────
 
     def _supervisor_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -584,11 +617,20 @@ class FlowOrchestrator:
         return self._run_core_node(self.NODE_AGGREGATOR, self._aggregator.aggregate, state)
 
     def _run_core_node(self, node_name: str, node_fn: Callable, state: Dict[str, Any]) -> Dict[str, Any]:
+        return self._run_traced_node(node_name, node_fn, state)
+
+    def _run_traced_node(self, node_name: str, node_fn: Callable, state: Dict[str, Any]) -> Dict[str, Any]:
         started = time.monotonic()
         status = "success"
         self._metrics.counter("orchestrator.node.calls", tags={"node": node_name})
         try:
-            return node_fn(state)
+            with self._tracing.start_span(
+                "langdeep.node",
+                {"langdeep.node": node_name},
+            ) as span:
+                result = node_fn(state)
+                span.set_attribute("langdeep.status", "success")
+                return result
         except Exception:
             status = "failure"
             self._metrics.counter("orchestrator.node.errors", tags={"node": node_name})

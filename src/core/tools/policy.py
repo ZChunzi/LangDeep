@@ -14,6 +14,7 @@ from pydantic import Field
 from ..errors import ToolConfirmationRequired, ToolTimeoutError, ToolWorkspaceError
 from ..logging import get_logger
 from ..observability.metrics import MetricsCollector
+from ..observability.tracing import NoOpTracingAdapter
 
 logger = get_logger(__name__)
 
@@ -83,6 +84,7 @@ class PolicyAwareTool(BaseTool):
     policy: ToolExecutionPolicy = Field(default_factory=ToolExecutionPolicy, exclude=True)
     audit_log: Optional[ToolAuditLog] = Field(default=None, exclude=True)
     metrics_collector: Optional[MetricsCollector] = Field(default=None, exclude=True)
+    tracing_adapter: Any = Field(default_factory=NoOpTracingAdapter, exclude=True)
     args_schema: Any = None
 
     def invoke(self, input: Any, config: Optional[Dict[str, Any]] = None, **kwargs: Any) -> Any:
@@ -125,8 +127,13 @@ class PolicyAwareTool(BaseTool):
     def _execute_with_policy(self, tool_input: Any, *, confirmed: bool, call) -> Any:
         started = time.monotonic()
         try:
-            _validate_tool_policy(self.name, self.tool_metadata, self.policy, tool_input, confirmed)
-            result = _call_with_timeout(self.name, self.tool_metadata, call)
+            with self.tracing_adapter.start_span(
+                "langdeep.tool",
+                {"langdeep.tool": self.name, "langdeep.mode": "sync"},
+            ) as span:
+                _validate_tool_policy(self.name, self.tool_metadata, self.policy, tool_input, confirmed)
+                result = _call_with_timeout(self.name, self.tool_metadata, call)
+                span.set_attribute("langdeep.status", "success")
             self._audit(started, success=True, confirmed=confirmed)
             return result
         except Exception as exc:
@@ -136,8 +143,13 @@ class PolicyAwareTool(BaseTool):
     async def _aexecute_with_policy(self, tool_input: Any, *, confirmed: bool, call) -> Any:
         started = time.monotonic()
         try:
-            _validate_tool_policy(self.name, self.tool_metadata, self.policy, tool_input, confirmed)
-            result = await _acall_with_timeout(self.name, self.tool_metadata, call)
+            with self.tracing_adapter.start_span(
+                "langdeep.tool",
+                {"langdeep.tool": self.name, "langdeep.mode": "async"},
+            ) as span:
+                _validate_tool_policy(self.name, self.tool_metadata, self.policy, tool_input, confirmed)
+                result = await _acall_with_timeout(self.name, self.tool_metadata, call)
+                span.set_attribute("langdeep.status", "success")
             self._audit(started, success=True, confirmed=confirmed)
             return result
         except Exception as exc:
@@ -189,6 +201,7 @@ def wrap_tool(
     policy: Optional[ToolExecutionPolicy] = None,
     audit_log: Optional[ToolAuditLog] = None,
     metrics_collector: Optional[MetricsCollector] = None,
+    tracing_adapter: Optional[Any] = None,
 ) -> PolicyAwareTool:
     """Return a policy-aware proxy for a registered tool."""
     if isinstance(tool, PolicyAwareTool):
@@ -203,6 +216,7 @@ def wrap_tool(
         policy=policy or ToolExecutionPolicy(),
         audit_log=audit_log,
         metrics_collector=metrics_collector,
+        tracing_adapter=tracing_adapter or NoOpTracingAdapter(),
     )
 
 

@@ -891,6 +891,32 @@ metrics.histogram("latency_ms", 120.0)
 snapshot = metrics.get_metrics()
 ```
 
+OpenTelemetry tracing is optional. LangDeep does not require
+`opentelemetry-api` by default; if it is not installed, the adapter records no
+spans and application behavior is unchanged.
+
+```python
+from langdeep import FlowOrchestrator, OpenTelemetryTracingAdapter
+
+
+tracing = OpenTelemetryTracingAdapter()
+orchestrator = FlowOrchestrator(
+    supervisor_model="gpt4o",
+    tracing_adapter=tracing,
+)
+```
+
+When configured, LangDeep records spans for:
+
+- `langdeep.invoke` around `invoke()`, `ainvoke()`, and `astream()`
+- `langdeep.node` around supervisor, planner, executor, aggregator, agent, and custom nodes
+- `langdeep.model` around router, planner, and aggregator model calls
+- `langdeep.tool` around policy-wrapped tool calls
+
+Custom tracing adapters can implement `start_span(name, attributes=None)` as a
+context manager and can return span objects with optional `set_attribute()` and
+`record_exception()` methods.
+
 ## 25. Runtime Diagnostics
 
 Diagnostics are startup/preflight checks. They are stricter than health checks because they validate registry wiring before traffic starts.
