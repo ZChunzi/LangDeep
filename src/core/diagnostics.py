@@ -241,6 +241,7 @@ def build_doctor_report(
     strict: bool = False,
     instantiate_agents: bool = True,
     timeout: int = 5,
+    audit_sink: Any = None,
 ) -> Dict[str, Any]:
     """Build an environment, registry, dependency, health, and security report."""
     diagnostics = validate_runtime(instantiate_agents=instantiate_agents)
@@ -248,9 +249,10 @@ def build_doctor_report(
     registries = _registry_snapshot()
     dependencies, dependency_issues = _dependency_snapshot()
     security = _security_snapshot()
+    audit = _audit_snapshot(audit_sink)
     environment_issues = _environment_issues()
 
-    doctor_issues = environment_issues + dependency_issues + security["issues"]
+    doctor_issues = environment_issues + dependency_issues + security["issues"] + audit["issues"]
     error_count = diagnostics.error_count + sum(
         1 for issue in doctor_issues if issue["severity"] == "error"
     )
@@ -279,6 +281,14 @@ def build_doctor_report(
         "registries": registries,
         "diagnostics": diagnostics.to_dict(),
         "health": health,
+        "audit": {
+            "schema_version": audit["schema_version"],
+            "sink_type": audit["sink_type"],
+            "configured": audit["configured"],
+            "durable": audit["durable"],
+            "path": audit["path"],
+            "issues": audit["issues"],
+        },
         "security": {
             "response_cache": security["response_cache"],
             "issues": security["issues"],
@@ -286,6 +296,58 @@ def build_doctor_report(
         "issues": doctor_issues,
         "error_count": error_count,
         "warning_count": warning_count,
+    }
+
+
+def _audit_snapshot(audit_sink: Any = None) -> Dict[str, Any]:
+    from .audit import AUDIT_SCHEMA_VERSION, AuditSink, InMemoryAuditSink, JsonlAuditSink
+
+    issues = []
+    sink_type = type(audit_sink).__name__ if audit_sink is not None else None
+    configured = audit_sink is not None
+    durable = False
+    path = None
+
+    if audit_sink is None:
+        issues.append(
+            _doctor_issue(
+                "warning",
+                "audit",
+                "sink",
+                "no audit sink was provided to doctor; production services should configure durable audit logging",
+            )
+        )
+    elif isinstance(audit_sink, JsonlAuditSink):
+        durable = True
+        path = str(audit_sink.path)
+    elif isinstance(audit_sink, InMemoryAuditSink):
+        issues.append(
+            _doctor_issue(
+                "warning",
+                "audit",
+                "sink",
+                "InMemoryAuditSink is process-local and should not be the production audit store",
+                sink_type=sink_type,
+            )
+        )
+    elif not isinstance(audit_sink, AuditSink) and not hasattr(audit_sink, "record"):
+        issues.append(
+            _doctor_issue(
+                "warning",
+                "audit",
+                "sink",
+                "audit sink does not expose record(); verify it can persist normalized AuditEvent objects",
+                sink_type=sink_type,
+            )
+        )
+
+    return {
+        "schema_version": AUDIT_SCHEMA_VERSION,
+        "sink_type": sink_type,
+        "configured": configured,
+        "durable": durable,
+        "path": path,
+        "issues": issues,
     }
 
 

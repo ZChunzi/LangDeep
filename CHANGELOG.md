@@ -15,6 +15,14 @@ and this project uses semantic versioning where practical.
 
 - Nothing yet.
 
+## [2.0.17] - 2026-05-20
+
+### Added
+
+- `build_doctor_report(audit_sink=...)` audit diagnostics with schema version,
+  sink type, durability classification, JSONL path reporting, and production
+  warnings for missing or in-memory audit sinks.
+
 ## [2.0.16] - 2026-05-20
 
 ### Added

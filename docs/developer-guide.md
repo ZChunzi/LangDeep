@@ -1,6 +1,6 @@
 # LangDeep Developer Guide
 
-Version: `2.0.16`
+Version: `2.0.17`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
@@ -86,7 +86,7 @@ Current package version is exposed as:
 ```python
 import langdeep
 
-assert langdeep.__version__ == "2.0.16"
+assert langdeep.__version__ == "2.0.17"
 ```
 
 The installed package also exposes a small CLI for local runtime checks:
@@ -1028,7 +1028,7 @@ Health checks:
 from langdeep import HealthChecker
 
 
-status = HealthChecker(version="2.0.16").check_all()
+status = HealthChecker(version="2.0.17").check_all()
 print(status.status)
 print(status.checks)
 ```
@@ -1309,7 +1309,24 @@ release:
 12. Create and push an annotated `v*` tag for PyPI trusted publishing.
 13. Verify PyPI install and create GitHub release notes.
 
-## 32. Enterprise Deployment Guidance
+## 32. Audit Diagnostics
+
+Doctor reports include audit readiness signals. Pass the audit sink your service
+will use so startup checks can classify whether audit logging is configured and
+durable.
+
+```python
+from langdeep import JsonlAuditSink, build_doctor_report
+
+
+report = build_doctor_report(audit_sink=JsonlAuditSink("logs/audit.jsonl"))
+assert report["audit"]["durable"] is True
+```
+
+Without an audit sink, doctor returns a warning because production services
+should persist audit events outside process memory.
+
+## 33. Enterprise Deployment Guidance
 
 Recommended minimum production controls:
 
@@ -1321,11 +1338,12 @@ Recommended minimum production controls:
 - Avoid running untrusted code in `SubprocessSandbox` without additional isolation.
 - Prefer `DockerSandbox` or a remote sandbox for untrusted execution, then harden the container runtime with image pinning, resource quotas, network policy, and minimal host mounts.
 - Add request-level audit logging around user input, selected route, workflow plan, tool usage, and final status.
+- Pass your production audit sink into `build_doctor_report(audit_sink=...)` during startup validation.
 - Export `HealthChecker` results to your service health endpoint.
 - Export `MetricsCollector` snapshots or wrap metrics with your standard telemetry system.
 - Keep provider SDK versions pinned in application deployments.
 
-## 33. Known Boundaries
+## 34. Known Boundaries
 
 - Registries are in-process singletons; they are not distributed registries.
 - `ainvoke()` uses native async graph or agent APIs when available, and falls back
@@ -1339,7 +1357,7 @@ Recommended minimum production controls:
   network boundary controls.
 - Provider SDK imports happen when corresponding model instances are created.
 
-## 34. Minimal Smoke Test
+## 35. Minimal Smoke Test
 
 Use this as a no-network smoke test for a fresh checkout:
 

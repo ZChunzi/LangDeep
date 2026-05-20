@@ -82,6 +82,7 @@ Priority themes:
 
 - [x] Low-coupling skill manifest and registry module
 - [x] In-memory and JSONL audit sink foundation
+- [x] Doctor audit sink classification and production warnings
 - [ ] Production FastAPI starter with auth, rate limits, audit middleware, and metrics
 - [x] Plugin lifecycle states: loaded, enabled, disabled, failed, unloaded
 - [ ] Registry namespace unification across all registries

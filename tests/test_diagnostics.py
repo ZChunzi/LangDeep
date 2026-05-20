@@ -5,6 +5,8 @@ from langchain_core.tools import tool as lc_tool
 
 from langdeep import (
     DiagnosticIssue,
+    InMemoryAuditSink,
+    JsonlAuditSink,
     RuntimeDiagnostics,
     RuntimeValidator,
     build_doctor_report,
@@ -180,6 +182,8 @@ def test_doctor_report_includes_environment_dependencies_and_security():
     assert report["environment"]["python_supported"] is True
     assert "langchain_core" in report["dependencies"]
     assert "sandbox" in report["registries"]
+    assert report["audit"]["schema_version"] == "langdeep.audit.v1"
+    assert report["audit"]["configured"] is False
     assert report["security"]["response_cache"]["type"] == "MemoryCache"
     assert report["warning_count"] >= 1
 
@@ -221,6 +225,20 @@ def test_doctor_report_warns_on_hardcoded_api_key():
         and issue["name"] == "model_api_key"
         for issue in report["issues"]
     )
+
+
+def test_doctor_report_classifies_audit_sinks(tmp_path):
+    in_memory = build_doctor_report(audit_sink=InMemoryAuditSink())
+    assert in_memory["audit"]["configured"] is True
+    assert in_memory["audit"]["durable"] is False
+    assert any(issue["component"] == "audit" for issue in in_memory["audit"]["issues"])
+
+    path = tmp_path / "audit" / "events.jsonl"
+    jsonl = build_doctor_report(audit_sink=JsonlAuditSink(path))
+    assert jsonl["audit"]["configured"] is True
+    assert jsonl["audit"]["durable"] is True
+    assert jsonl["audit"]["path"] == str(path)
+    assert jsonl["audit"]["issues"] == []
 
 
 def test_register_provider_function_returns_factory():
