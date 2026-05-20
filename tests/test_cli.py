@@ -55,6 +55,50 @@ def test_cli_diagnostics_returns_failure_for_errors(capsys):
     assert payload["error_count"] >= 1
 
 
+def test_cli_doctor_outputs_json(capsys):
+    assert main(["doctor"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] in ("ok", "warning")
+    assert payload["strict"] is False
+    assert "environment" in payload
+    assert "dependencies" in payload
+    assert "registries" in payload
+    assert "diagnostics" in payload
+    assert "health" in payload
+    assert "security" in payload
+
+
+def test_cli_doctor_strict_returns_failure_for_warnings(capsys):
+    assert main(["doctor", "--strict"]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["strict"] is True
+    assert payload["warning_count"] >= 1
+
+
+def test_cli_doctor_returns_failure_for_errors(capsys):
+    agent_registry.register(
+        "broken",
+        lambda: object(),
+        AgentMetadata(name="broken", description="Broken", model_name="missing_model"),
+    )
+
+    assert main(["doctor"]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["error_count"] >= 1
+
+
+def test_cli_doctor_text_format(capsys):
+    assert main(["doctor", "--format", "text"]) == 0
+
+    output = capsys.readouterr().out
+    assert "LangDeep doctor:" in output
+    assert "Registries:" in output
+
+
 def test_cli_list_registry_outputs_registered_names(capsys):
     agent_registry.register(
         "assistant",

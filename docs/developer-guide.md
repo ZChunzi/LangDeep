@@ -96,13 +96,20 @@ langdeep --version
 langdeep health
 langdeep diagnostics
 langdeep diagnostics --instantiate-agents
+langdeep doctor
+langdeep doctor --strict
+langdeep doctor --format text
 langdeep list
 langdeep list agents
 ```
 
-`health`, `diagnostics`, and `list` print JSON. `health` returns a non-zero
-exit code only when the aggregate status is `unhealthy`; `diagnostics` returns
-a non-zero exit code when configuration errors are found.
+`health`, `diagnostics`, `doctor`, and `list` print JSON by default. `health`
+returns a non-zero exit code only when the aggregate status is `unhealthy`;
+`diagnostics` returns a non-zero exit code when configuration errors are found.
+`doctor` combines diagnostics, health, dependency versions, registry snapshots,
+provider optional dependency checks, sandbox/tool-policy/security warnings, and
+response-cache status. `langdeep doctor --strict` also returns a non-zero exit
+code when warnings are present, making it suitable for stricter CI gates.
 
 ## 5. Registries
 

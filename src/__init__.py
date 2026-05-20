@@ -30,6 +30,7 @@ from langdeep.core.process import ProcessManager, ProcessState
 from langdeep.core.secrets import secrets_manager, EnvSecretsProvider
 from langdeep.core.observability import HealthChecker, MetricsCollector
 from langdeep.core.diagnostics import (
+    build_doctor_report,
     DiagnosticIssue,
     RuntimeDiagnostics,
     RuntimeValidator,
@@ -184,6 +185,7 @@ __all__ = [
     "HealthChecker",
     "MetricsCollector",
     "DiagnosticIssue",
+    "build_doctor_report",
     "RuntimeDiagnostics",
     "RuntimeValidator",
     "validate_runtime",
