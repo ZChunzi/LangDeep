@@ -34,6 +34,8 @@ from langdeep.core.observability import (
     MetricsCollector,
     NoOpTracingAdapter,
     OpenTelemetryTracingAdapter,
+    PrometheusMetricsExporter,
+    export_prometheus_metrics,
 )
 from langdeep.core.diagnostics import (
     build_doctor_report,
@@ -194,6 +196,8 @@ __all__ = [
     "MetricsCollector",
     "NoOpTracingAdapter",
     "OpenTelemetryTracingAdapter",
+    "PrometheusMetricsExporter",
+    "export_prometheus_metrics",
     "DiagnosticIssue",
     "build_doctor_report",
     "RuntimeDiagnostics",

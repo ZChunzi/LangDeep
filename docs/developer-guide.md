@@ -1029,6 +1029,26 @@ metrics.histogram("latency_ms", 120.0)
 snapshot = metrics.get_metrics()
 ```
 
+Prometheus text export is available without adding the `prometheus-client`
+package:
+
+```python
+from langdeep import MetricsCollector, export_prometheus_metrics
+
+
+metrics = MetricsCollector()
+metrics.counter("requests.total", tags={"endpoint": "/chat", "status": "ok"})
+metrics.histogram("latency_ms", 120.0, tags={"endpoint": "/chat"})
+
+text = export_prometheus_metrics(metrics.get_metrics())
+```
+
+The exporter converts metric keys such as
+`requests.total|endpoint=/chat,status=ok` into Prometheus-safe names and labels.
+Counters become `counter` metrics, gauges become `gauge` metrics, and histogram
+snapshots are exported as `summary`-style metrics with `count`, `sum`, and
+quantile samples.
+
 OpenTelemetry tracing is optional. LangDeep does not require
 `opentelemetry-api` by default; if it is not installed, the adapter records no
 spans and application behavior is unchanged.
