@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from ..logging import get_logger
 from ..errors import PlannerError, TemplateNotFoundError
 from ..observability.metrics import MetricsCollector
+from ..observability.tracing import NoOpTracingAdapter
 from ..registry.agent_registry import agent_registry
 from ..registry.tool_registry import tool_registry
 from ...schemas import status_from_execution_result, validate_workflow_plan
@@ -61,10 +62,12 @@ class LLMPlanGenerator(PlanGenerator):
         model_name: str,
         prompt_loader=None,
         metrics_collector: Optional[MetricsCollector] = None,
+        tracing_adapter: Optional[Any] = None,
     ):
         self._model_name = model_name
         self._prompt_loader = prompt_loader
         self._metrics = metrics_collector
+        self._tracing = tracing_adapter or NoOpTracingAdapter()
 
     def generate(
         self,
@@ -97,14 +100,19 @@ class LLMPlanGenerator(PlanGenerator):
                 tags={"component": "planner", "model": self._model_name},
             )
         try:
-            response = model_registry.invoke_with_cache(
-                self._model_name,
-                prompt_msgs,
-                cache_context={
-                    "component": "planner",
-                    "available_agents": available_agent_names,
-                },
-            )
+            with self._tracing.start_span(
+                "langdeep.model",
+                {"langdeep.component": "planner", "langdeep.model": self._model_name},
+            ) as span:
+                response = model_registry.invoke_with_cache(
+                    self._model_name,
+                    prompt_msgs,
+                    cache_context={
+                        "component": "planner",
+                        "available_agents": available_agent_names,
+                    },
+                )
+                span.set_attribute("langdeep.status", "success")
             return parse_plan_content(str(response.content))
         except Exception as exc:
             status = "failure"
@@ -142,12 +150,14 @@ class Planner:
         plan_generator: Optional[PlanGenerator] = None,
         prompt_loader=None,
         metrics_collector: Optional[MetricsCollector] = None,
+        tracing_adapter: Optional[Any] = None,
     ):
         self._metrics = metrics_collector
         self._generator = plan_generator or LLMPlanGenerator(
             model_name,
             prompt_loader,
             metrics_collector=metrics_collector,
+            tracing_adapter=tracing_adapter,
         )
         self._fallback = FallbackPlanGenerator()
 

@@ -8,6 +8,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ISSUE_TEMPLATE_DIR = REPO_ROOT / ".github" / "ISSUE_TEMPLATE"
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
+DOCS_DIR = REPO_ROOT / "docs"
 
 
 def test_issue_templates_have_required_form_fields():
@@ -97,3 +98,36 @@ def test_publish_workflow_supports_testpypi_and_pypi_trusted_publishing():
     )
     build_steps = jobs["build"]["steps"]
     assert any("twine check dist/*" in step.get("run", "") for step in build_steps)
+
+
+def test_docs_index_links_core_documentation_pages():
+    expected_pages = {
+        "index.md",
+        "getting-started.md",
+        "concepts.md",
+        "decorators.md",
+        "orchestrator.md",
+        "providers.md",
+        "agents.md",
+        "tools.md",
+        "workflow-plan.md",
+        "memory-cache.md",
+        "sandbox.md",
+        "observability.md",
+        "security.md",
+        "deployment.md",
+        "api-reference.md",
+        "developer-guide.md",
+    }
+    existing_pages = {path.name for path in DOCS_DIR.glob("*.md")}
+    assert expected_pages <= existing_pages
+
+    index_text = (DOCS_DIR / "index.md").read_text(encoding="utf-8")
+    for page in expected_pages - {"index.md"}:
+        assert f"({page})" in index_text
+
+    readme_en = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (REPO_ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    for page in ("getting-started.md", "concepts.md", "deployment.md", "api-reference.md"):
+        assert f"docs/{page}" in readme_en
+        assert f"docs/{page}" in readme_zh

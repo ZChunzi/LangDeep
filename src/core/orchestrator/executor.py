@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Set
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
 from ..logging import get_logger, get_trace_id
+from ..agent_builder import ainvoke_agent_runnable, invoke_agent_runnable
 from ..errors import TaskExecutionError, CircularDependencyError
 from ..execution.execution_policy import ExecutionPolicy
 from ..observability.metrics import MetricsCollector
@@ -138,7 +139,7 @@ class RetryTaskRunner(TaskRunner):
             self._record_attempt(agent_name, "sync")
             try:
                 agent_instance = agent_registry.get_agent(agent_name)
-                resp = agent_instance.invoke({
+                resp = invoke_agent_runnable(agent_instance, {
                     "messages": messages,
                     "task_context": {
                         **state.get("task_context", {}),
@@ -200,7 +201,7 @@ class RetryTaskRunner(TaskRunner):
             try:
                 agent_instance = agent_registry.get_agent(agent_name)
                 resp = await asyncio.wait_for(
-                    agent_instance.ainvoke({
+                    ainvoke_agent_runnable(agent_instance, {
                         "messages": messages,
                         "task_context": {
                             **state.get("task_context", {}),

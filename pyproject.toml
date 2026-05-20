@@ -39,12 +39,18 @@ anthropic = ["langchain-anthropic"]
 google-genai = ["langchain-google-genai"]
 vertexai = ["langchain-google-vertexai"]
 ollama = ["langchain-ollama"]
+redis = ["redis>=5.0"]
+server = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
 all = [
     "langchain-anthropic",
     "langchain-google-genai",
     "langchain-google-vertexai",
     "langchain-ollama",
     "langchain-tavily",
+    "redis>=5.0",
 ]
 dev = [
     "build>=1.2.0",
