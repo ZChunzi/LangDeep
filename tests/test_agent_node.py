@@ -1,5 +1,6 @@
 """Unit tests for agent_node factory (make_agent_node) and _extract."""
 
+import asyncio
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -103,6 +104,57 @@ def test_node_retry_on_failure():
     state = {"messages": [HumanMessage(content="go")], "task_context": {}}
     result = fn(state)
     assert "success on retry" in result["messages"][0].content
+
+
+def test_node_supports_sync_only_agent():
+    class SyncOnlyAgent:
+        def invoke(self, state):
+            return {"messages": [AIMessage(content="sync only")]}
+
+    agent_registry.register("sync_only", lambda: SyncOnlyAgent(), AgentMetadata(
+        name="sync_only", description="sync only", capabilities=[],
+        routing_keywords=[], model_name="gpt4o",
+    ))
+    fn = make_agent_node("sync_only")
+    state = {"messages": [HumanMessage(content="go")], "task_context": {}}
+    result = fn(state)
+    assert result["messages"][0].content == "sync only"
+
+
+def test_node_bridges_async_only_agent_from_sync_context():
+    class AsyncOnlyAgent:
+        async def ainvoke(self, state):
+            return {"messages": [AIMessage(content="async only")]}
+
+    agent_registry.register("async_only", lambda: AsyncOnlyAgent(), AgentMetadata(
+        name="async_only", description="async only", capabilities=[],
+        routing_keywords=[], model_name="gpt4o",
+    ))
+    fn = make_agent_node("async_only")
+    state = {"messages": [HumanMessage(content="go")], "task_context": {}}
+    result = fn(state)
+    assert result["messages"][0].content == "async only"
+
+
+def test_node_returns_awaitable_for_async_only_agent_in_running_loop():
+    class AsyncOnlyAgent:
+        async def ainvoke(self, state):
+            return {"messages": [AIMessage(content="awaited async only")]}
+
+    agent_registry.register("async_only", lambda: AsyncOnlyAgent(), AgentMetadata(
+        name="async_only", description="async only", capabilities=[],
+        routing_keywords=[], model_name="gpt4o",
+    ))
+    fn = make_agent_node("async_only")
+    state = {"messages": [HumanMessage(content="go")], "task_context": {}}
+
+    async def run():
+        result = fn(state)
+        assert asyncio.iscoroutine(result)
+        return await result
+
+    result = asyncio.run(run())
+    assert result["messages"][0].content == "awaited async only"
 
 
 def test_node_exhausts_retries():
