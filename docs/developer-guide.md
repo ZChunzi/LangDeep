@@ -4,6 +4,9 @@ Version: `2.0.13`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
+For task-oriented documentation, start at [Documentation Index](index.md). This
+developer guide remains the implementation-oriented reference.
+
 ## 1. Project Scope
 
 LangDeep is a Python framework for building multi-agent workflows on top of LangChain and LangGraph. It favors registration-driven application assembly:
