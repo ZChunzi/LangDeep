@@ -14,7 +14,7 @@ from ..errors import (
     ProviderNotFoundError,
     ProviderImportError,
 )
-from ..cache import MemoryCache, BaseCacheBackend
+from ..cache import BaseCacheBackend, FileCacheBackend, MemoryCache
 
 logger = get_logger(__name__)
 
@@ -413,8 +413,18 @@ class ModelRegistry:
     ) -> None:
         """Enable LLM response caching (off by default — changes LLM semantics)."""
         with self._registry_lock:
-            self._response_cache = MemoryCache(max_size=max_entries, default_ttl=ttl)
-        logger.info("LLM response cache enabled", extra={"ttl": ttl, "max_entries": max_entries})
+            if disk_path:
+                self._response_cache = FileCacheBackend(
+                    disk_path,
+                    max_entries=max_entries,
+                    default_ttl=ttl,
+                )
+            else:
+                self._response_cache = MemoryCache(max_size=max_entries, default_ttl=ttl)
+        logger.info(
+            "LLM response cache enabled",
+            extra={"ttl": ttl, "max_entries": max_entries, "disk_path": disk_path},
+        )
 
     def disable_response_cache(self) -> None:
         with self._registry_lock:

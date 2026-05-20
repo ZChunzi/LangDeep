@@ -726,7 +726,8 @@ def llm_cache():
     pass
 ```
 
-If the factory returns `None`, the decorator creates a `MemoryCache`.
+If the factory returns `None`, the decorator creates a `MemoryCache`. LangDeep
+also includes `FileCacheBackend` for trusted local persistent caches.
 
 Custom backends should implement `BaseCacheBackend`:
 
@@ -745,6 +746,16 @@ from langdeep.core.registry.model_registry import model_registry
 model_registry.enable_response_cache(ttl=300, max_entries=1024)
 ```
 
+To persist response cache entries on local disk, pass `disk_path`:
+
+```python
+model_registry.enable_response_cache(
+    ttl=300,
+    max_entries=1024,
+    disk_path=".langdeep-cache/responses",
+)
+```
+
 Then invoke through:
 
 ```python
@@ -757,6 +768,13 @@ the model name, message payload, invocation keyword arguments, and
 component-specific context such as router mode, valid routing targets, bound
 tools, or planner agent lists. Keyword routing and custom non-LLM strategies do
 not use the LLM response cache because they do not make model calls.
+
+Disk response cache entries use `FileCacheBackend`, which serializes values with
+`pickle`. Use it only for trusted local cache directories, do not share it across
+trust boundaries, and do not point it at directories writable by untrusted users.
+Response caching is opt-in because cached LLM outputs can change application
+semantics: repeated calls may return the cached output instead of reflecting a
+new model state, provider rollout, temperature sample, or external tool context.
 
 ## 20. IM Integration
 
