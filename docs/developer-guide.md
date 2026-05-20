@@ -595,6 +595,70 @@ Supported retry backoffs:
 - `exponential`
 - `fixed`
 
+Common configurations:
+
+Sequential execution is useful when tasks mutate shared local state, call an API
+with strict ordering requirements, or are easier to debug one at a time:
+
+```python
+from langdeep import ExecutionPolicy
+
+
+sequential_policy = ExecutionPolicy(
+    strategy="sequential",
+    max_concurrency=1,
+    fail_fast=True,
+)
+```
+
+Gather execution is the default shape for independent I/O-bound tasks. Use it
+when ready tasks can run in parallel and only need the dependency graph to
+decide when they become eligible:
+
+```python
+from langdeep import ExecutionPolicy
+
+
+gather_policy = ExecutionPolicy(
+    strategy="gather",
+    max_concurrency=5,
+    fail_fast=False,
+)
+```
+
+Retry configuration is useful for transient provider, network, or sandbox
+failures. `retry_on` matches exception class names, while `max_retries` controls
+the total attempts made by retry-capable task runners:
+
+```python
+from langdeep import ExecutionPolicy
+
+
+retry_policy = ExecutionPolicy(
+    strategy="gather",
+    retry_on=["TimeoutError", "ConnectionError"],
+    max_retries=4,
+    retry_backoff="exponential",
+)
+```
+
+Timeout configuration bounds each async task attempt. Use shorter timeouts for
+interactive chat flows and longer values for background workflows that call slow
+tools:
+
+```python
+from langdeep import ExecutionPolicy
+
+
+timeout_policy = ExecutionPolicy(
+    strategy="gather",
+    timeout_seconds=10.0,
+    retry_on=["TimeoutError"],
+    max_retries=2,
+    retry_backoff="fixed",
+)
+```
+
 Policy objects can be serialized:
 
 ```python
