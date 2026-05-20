@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, Tool
 
 from langdeep.core.memory import (
     InMemoryBackend,
+    SQLiteMemoryBackend,
     MemoryEntry,
     BaseMemoryBackend,
     MemoryRegistry,
@@ -139,6 +140,88 @@ def test_in_memory_concurrent_store():
 
     assert len(backend.load_messages("t1")) == 50
     assert len(backend.load_messages("t2")) == 50
+
+
+# ── SQLiteMemoryBackend ──────────────────────────────────────────────────────
+
+
+def test_sqlite_memory_store_messages_appends_and_persists(tmp_path):
+    db_path = tmp_path / "memory.sqlite3"
+    backend = SQLiteMemoryBackend(db_path)
+    backend.store_messages("s", [HumanMessage(content="first")])
+    backend.store_messages("s", [AIMessage(content="second")])
+    backend.close()
+
+    reopened = SQLiteMemoryBackend(db_path)
+    try:
+        loaded = reopened.load_messages("s")
+        assert [message.content for message in loaded] == ["first", "second"]
+        assert [message.type for message in loaded] == ["human", "ai"]
+        assert reopened.get_entry_count("s") == 2
+    finally:
+        reopened.close()
+
+
+def test_sqlite_memory_store_entry_replaces_existing_index(tmp_path):
+    backend = SQLiteMemoryBackend(tmp_path / "memory.sqlite3")
+    try:
+        backend.store_messages("s", [HumanMessage(content="original")])
+        backend.store_entry("s", MemoryEntry("s", 0, "human", "updated", datetime.now()))
+
+        loaded = backend.load_messages("s")
+        assert len(loaded) == 1
+        assert loaded[0].content == "updated"
+    finally:
+        backend.close()
+
+
+def test_sqlite_memory_sessions_delete_and_clear(tmp_path):
+    backend = SQLiteMemoryBackend(tmp_path / "memory.sqlite3")
+    try:
+        backend.store_messages("b", [HumanMessage(content="b")])
+        backend.store_messages("a", [HumanMessage(content="a")])
+
+        assert backend.list_sessions() == ["a", "b"]
+        assert backend.get_entry_count() == 2
+        assert backend.delete_session("a") is True
+        assert backend.delete_session("missing") is False
+        assert backend.list_sessions() == ["b"]
+
+        backend.clear()
+        assert backend.list_sessions() == []
+        assert backend.load_messages("b") == []
+    finally:
+        backend.close()
+
+
+def test_sqlite_memory_roundtrips_tool_calls_and_additional_kwargs(tmp_path):
+    backend = SQLiteMemoryBackend(tmp_path / "memory.sqlite3")
+    message = AIMessage(
+        content="",
+        tool_calls=[{"name": "lookup", "args": {"query": "refund"}, "id": "call_1"}],
+        additional_kwargs={"reasoning_content": "checked policy"},
+    )
+    try:
+        backend.store_messages("s", [message])
+
+        loaded = backend.load_messages("s")
+        assert loaded[0].tool_calls[0]["name"] == "lookup"
+        assert loaded[0].additional_kwargs["reasoning_content"] == "checked policy"
+    finally:
+        backend.close()
+
+
+def test_sqlite_memory_accepts_in_memory_connection():
+    import sqlite3
+
+    connection = sqlite3.connect(":memory:")
+    backend = SQLiteMemoryBackend(connection=connection)
+    backend.store_messages("s", [HumanMessage(content="hi")])
+
+    assert backend.load_messages("s")[0].content == "hi"
+    backend.close()
+    connection.execute("SELECT COUNT(*) FROM memory_entries")
+    connection.close()
 
 
 # ── Serialization ────────────────────────────────────────────────────────────

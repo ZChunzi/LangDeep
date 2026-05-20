@@ -11,6 +11,7 @@ from langchain_core.tools import tool as lc_tool
 from ..logging import get_logger
 from ..errors import RoutingError
 from ..observability.metrics import MetricsCollector
+from ..observability.tracing import NoOpTracingAdapter
 from ..registry.agent_registry import agent_registry
 
 logger = get_logger(__name__)
@@ -90,12 +91,14 @@ class DefaultRouter:
         routing_strategy: Optional[RoutingStrategy] = None,
         valid_targets: Optional[List[str]] = None,
         metrics_collector: Optional[MetricsCollector] = None,
+        tracing_adapter: Optional[Any] = None,
     ):
         self._model_name = model_name
         self._strategy = routing_strategy or KeywordRoutingStrategy()
         self._valid_targets = valid_targets or []
         self._routing_tool = self._build_tool()
         self._metrics = metrics_collector
+        self._tracing = tracing_adapter or NoOpTracingAdapter()
 
     def set_valid_targets(self, targets: List[str]) -> None:
         self._valid_targets = targets
@@ -165,18 +168,27 @@ class DefaultRouter:
             )
 
         try:
-            response = model_registry.invoke_with_cache(
-                self._model_name,
-                tool_messages,
-                cache_context={
-                    "component": "router",
-                    "mode": "tool",
-                    "valid_targets": self._valid_targets,
-                    "available_agents": [a["name"] for a in available_agents],
-                    "bound_tools": [self._routing_tool.name],
+            with self._tracing.start_span(
+                "langdeep.model",
+                {
+                    "langdeep.component": "router",
+                    "langdeep.model": self._model_name,
+                    "langdeep.mode": "tool",
                 },
-                invoker=lambda messages, **kwargs: llm_with_tools.invoke(messages, **kwargs),
-            )
+            ) as span:
+                response = model_registry.invoke_with_cache(
+                    self._model_name,
+                    tool_messages,
+                    cache_context={
+                        "component": "router",
+                        "mode": "tool",
+                        "valid_targets": self._valid_targets,
+                        "available_agents": [a["name"] for a in available_agents],
+                        "bound_tools": [self._routing_tool.name],
+                    },
+                    invoker=lambda messages, **kwargs: llm_with_tools.invoke(messages, **kwargs),
+                )
+                span.set_attribute("langdeep.status", "success")
             next_node = _parse_tool_call(response, self._valid_targets)
         except Exception as exc:
             model_status = "failure"
@@ -193,16 +205,25 @@ class DefaultRouter:
             )
             try:
                 text_messages = [SystemMessage(content=text_prompt), HumanMessage(content=user_input)]
-                response2 = model_registry.invoke_with_cache(
-                    self._model_name,
-                    text_messages,
-                    cache_context={
-                        "component": "router",
-                        "mode": "text",
-                        "valid_targets": self._valid_targets,
-                        "available_agents": [a["name"] for a in available_agents],
+                with self._tracing.start_span(
+                    "langdeep.model",
+                    {
+                        "langdeep.component": "router",
+                        "langdeep.model": self._model_name,
+                        "langdeep.mode": "text",
                     },
-                )
+                ) as span:
+                    response2 = model_registry.invoke_with_cache(
+                        self._model_name,
+                        text_messages,
+                        cache_context={
+                            "component": "router",
+                            "mode": "text",
+                            "valid_targets": self._valid_targets,
+                            "available_agents": [a["name"] for a in available_agents],
+                        },
+                    )
+                    span.set_attribute("langdeep.status", "success")
                 fallback = _parse_text_routing(response2, self._valid_targets)
                 if fallback:
                     logger.info("Fallback text routing succeeded",

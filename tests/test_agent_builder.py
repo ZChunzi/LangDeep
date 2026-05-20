@@ -4,7 +4,12 @@ import langgraph.prebuilt
 from langchain_core.messages import AIMessage
 from langchain_core.tools import tool as lc_tool
 
-from langdeep.core.agent_builder import AgentBuilderRegistry, BaseAgentBuilder, ReActAgentBuilder
+from langdeep.core.agent_builder import (
+    AgentBuilderRegistry,
+    BaseAgentBuilder,
+    ReActAgentBuilder,
+    validate_agent_runnable,
+)
 from langdeep.core.errors import AgentBuildError, PromptNotFoundError
 from langdeep.core.registry.agent_registry import AgentMetadata
 from langdeep.core.registry.model_registry import ModelConfig, model_registry
@@ -47,6 +52,35 @@ def test_builder_registry_uses_registered_builder():
     result = registry.build(AgentMetadata(name="agent1", description="", agent_type="test"))
     assert result == {"built": "agent1"}
     assert "test" in registry.list_builders()
+
+
+def test_validate_agent_runnable_accepts_sync_async_or_both():
+    class SyncOnly:
+        def invoke(self, state):
+            return state
+
+    class AsyncOnly:
+        async def ainvoke(self, state):
+            return state
+
+    class SyncAndAsync:
+        def invoke(self, state):
+            return state
+
+        async def ainvoke(self, state):
+            return state
+
+    validate_agent_runnable(SyncOnly())
+    validate_agent_runnable(AsyncOnly())
+    validate_agent_runnable(SyncAndAsync())
+
+
+def test_validate_agent_runnable_rejects_missing_call_contract():
+    try:
+        validate_agent_runnable(object())
+        assert False, "Should raise"
+    except AgentBuildError as exc:
+        assert "invoke(state), ainvoke(state), or both" in str(exc)
 
 
 def test_react_builder_resolves_inline_and_file_prompt(tmp_path):

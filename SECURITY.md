@@ -62,6 +62,17 @@ AST allowlist, applies subprocess timeouts, and uses a best-effort Linux memory
 limit. These controls reduce accidental misuse but do not replace container,
 VM, permission, network, filesystem, and audit controls for untrusted workloads.
 
+`DockerSandbox` provides a stronger opt-in boundary by executing code through the local Docker CLI, mounting only the selected workspace at `/workspace`, and defaulting to `--network none`. It still depends on the host Docker daemon, selected image, container privileges, mounted paths, and resource policy. Treat it as one layer in a defense-in-depth design, not as a complete managed sandbox.
+
+For untrusted workloads:
+
+- Pin and scan container images.
+- Do not mount secrets, sensitive host directories, or the Docker socket.
+- Prefer rootless or least-privilege Docker configuration.
+- Add CPU, memory, process, and filesystem limits with deployment policy or backend `docker_args`.
+- Keep network access disabled unless there is an explicit allowlist and audit trail.
+- Collect logs and artifacts through trusted host-side paths only.
+
 ## Secrets policy
 
 Do not hard-code API keys or credentials in examples, tests, issues, or pull requests. Prefer environment variables or a dedicated secrets provider.

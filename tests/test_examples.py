@@ -42,3 +42,27 @@ def test_customer_support_agent_example_runs(capsys):
     assert "Customer question: Can I get a refund for an unused order?" in output
     assert "Matched topic: refund" in output
     assert "Policy: Refund requests are accepted within 30 days" in output
+
+
+def test_customer_service_demo_runs(capsys):
+    clean_registries()
+    example_path = (
+        Path(__file__).resolve().parents[1]
+        / "examples"
+        / "customer_service_demo"
+        / "demo.py"
+    )
+    module = load_module(example_path)
+
+    try:
+        module.main()
+        output = capsys.readouterr().out
+    finally:
+        clean_registries()
+
+    assert "Conversation" in output
+    assert "Order LD-1001" in output
+    assert "Return case CASE-0001 has been opened for LD-1001." in output
+    assert "Memory entries: " in output
+    assert "create_return_case: success=True, confirmed=True, blocked=False" in output
+    assert "customer_service.tool.calls" in output
