@@ -193,7 +193,6 @@ def test_metrics_clear():
     assert mc.get_metrics()["histograms"] == {}
 
 
-<<<<<<< HEAD
 # ── Prometheus exporter ─────────────────────────────────────────────────────
 
 
@@ -313,4 +312,3 @@ class RecordingSpan:
 
     def record_exception(self, exc):
         self.data["exceptions"].append(type(exc).__name__)
->>>>>>> origin/main
