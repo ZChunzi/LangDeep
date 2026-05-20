@@ -7,6 +7,7 @@ from langdeep import (
     DiagnosticIssue,
     RuntimeDiagnostics,
     RuntimeValidator,
+    build_doctor_report,
     register_provider,
     validate_runtime,
 )
@@ -170,6 +171,56 @@ def test_model_registry_config_accessors_are_safe_snapshots():
         assert False, "Should raise"
     except Exception as exc:
         assert "MODEL_NOT_FOUND" in str(exc)
+
+
+def test_doctor_report_includes_environment_dependencies_and_security():
+    report = build_doctor_report()
+
+    assert report["status"] in ("ok", "warning")
+    assert report["environment"]["python_supported"] is True
+    assert "langchain_core" in report["dependencies"]
+    assert "sandbox" in report["registries"]
+    assert report["security"]["response_cache"]["type"] == "MemoryCache"
+    assert report["warning_count"] >= 1
+
+
+def test_doctor_report_strict_marks_warnings_not_ok():
+    report = build_doctor_report(strict=True)
+
+    assert report["warning_count"] >= 1
+    assert report["ok"] is False
+
+
+def test_doctor_report_surfaces_runtime_errors():
+    agent_registry.register(
+        "broken",
+        lambda: object(),
+        AgentMetadata(name="broken", description="Broken", model_name="missing_model"),
+    )
+
+    report = build_doctor_report()
+
+    assert report["status"] == "error"
+    assert report["error_count"] >= 1
+    assert any(
+        issue["component"] == "agent"
+        for issue in report["diagnostics"]["issues"]
+    )
+
+
+def test_doctor_report_warns_on_hardcoded_api_key():
+    model_registry.register(
+        "hardcoded",
+        ModelConfig(provider="mock", model_name="mock", api_key="sk-test-hardcoded"),
+    )
+
+    report = build_doctor_report()
+
+    assert any(
+        issue["component"] == "secrets"
+        and issue["name"] == "model_api_key"
+        for issue in report["issues"]
+    )
 
 
 def test_register_provider_function_returns_factory():

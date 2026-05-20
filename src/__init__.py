@@ -24,13 +24,19 @@ from langdeep.core.decorators.tool import register_tool, regist_tool
 from langdeep.core.decorators.agent import agent
 from langdeep.core.decorators.provider import provider
 from langdeep.core.decorators import memory, cache, im_channel
-from langdeep.core.memory import RedisMemoryBackend
+from langdeep.core.memory import RedisMemoryBackend, SQLiteMemoryBackend
 from langdeep.core.registry.model_registry import ModelConfig, provider_registry
-from langdeep.core.sandbox import BaseSandbox, SubprocessSandbox, sandbox_registry, sandbox
+from langdeep.core.sandbox import BaseSandbox, DockerSandbox, SubprocessSandbox, sandbox_registry, sandbox
 from langdeep.core.process import ProcessManager, ProcessState
 from langdeep.core.secrets import secrets_manager, EnvSecretsProvider
-from langdeep.core.observability import HealthChecker, MetricsCollector
+from langdeep.core.observability import (
+    HealthChecker,
+    MetricsCollector,
+    NoOpTracingAdapter,
+    OpenTelemetryTracingAdapter,
+)
 from langdeep.core.diagnostics import (
+    build_doctor_report,
     DiagnosticIssue,
     RuntimeDiagnostics,
     RuntimeValidator,
@@ -130,6 +136,7 @@ __all__ = [
     "user_message",
     "memory",
     "RedisMemoryBackend",
+    "SQLiteMemoryBackend",
     "cache",
     "im_channel",
     # Execution
@@ -173,6 +180,7 @@ __all__ = [
     "normalize_deepseek_messages",
     # Sandbox
     "BaseSandbox",
+    "DockerSandbox",
     "SubprocessSandbox",
     "sandbox_registry",
     "sandbox",
@@ -185,7 +193,10 @@ __all__ = [
     # Observability
     "HealthChecker",
     "MetricsCollector",
+    "NoOpTracingAdapter",
+    "OpenTelemetryTracingAdapter",
     "DiagnosticIssue",
+    "build_doctor_report",
     "RuntimeDiagnostics",
     "RuntimeValidator",
     "validate_runtime",

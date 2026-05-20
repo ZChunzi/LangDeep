@@ -161,6 +161,47 @@ def test_invoke_with_cache_hits_and_uses_context_in_key():
     assert llm.calls == 2
 
 
+def test_enable_response_cache_with_disk_path_persists_response(tmp_path):
+    class CountingLLM(BaseChatModel):
+        calls: int = 0
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            self.calls += 1
+            return ChatResult(generations=[ChatGeneration(
+                message=AIMessage(content=f"call {self.calls}")
+            )])
+
+        @property
+        def _llm_type(self):
+            return "counting"
+
+    llm = CountingLLM()
+    model_registry.register("counting", ModelConfig(provider="mock", model_name="counting"))
+    model_registry.set_model_instance("counting", llm)
+    model_registry.enable_response_cache(ttl=300, max_entries=10, disk_path=str(tmp_path))
+
+    messages = [HumanMessage(content="hello")]
+    first = model_registry.invoke_with_cache("counting", messages)
+    model_registry.enable_response_cache(ttl=300, max_entries=10, disk_path=str(tmp_path))
+    second = model_registry.invoke_with_cache("counting", messages)
+
+    assert first.content == "call 1"
+    assert second.content == "call 1"
+    assert llm.calls == 1
+    assert model_registry.snapshot()["response_cache_type"] == "FileCacheBackend"
+
+
+def test_enable_response_cache_with_disk_path_rejects_invalid_path(tmp_path):
+    bad_path = tmp_path / "cache-file"
+    bad_path.write_text("not a directory")
+
+    try:
+        model_registry.enable_response_cache(disk_path=str(bad_path))
+        assert False, "Should reject file path"
+    except ValueError:
+        pass
+
+
 def test_custom_provider():
     def custom_factory(config):
         class CustomLLM(BaseChatModel):

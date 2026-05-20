@@ -21,6 +21,29 @@
 
 ---
 
+## 文档导航
+
+README 聚焦项目概览和最小快速开始。按场景拆分的文档位于
+[`docs/`](docs/index.md)：
+
+- [Getting Started](docs/getting-started.md)
+- [Concepts](docs/concepts.md)
+- [Decorators](docs/decorators.md)
+- [Orchestrator](docs/orchestrator.md)
+- [Providers](docs/providers.md)
+- [Agents](docs/agents.md)
+- [Tools](docs/tools.md)
+- [Workflow Plans](docs/workflow-plan.md)
+- [Memory And Cache](docs/memory-cache.md)
+- [Sandbox](docs/sandbox.md)
+- [Observability](docs/observability.md)
+- [Security](docs/security.md)
+- [Deployment](docs/deployment.md)
+- [API Reference](docs/api-reference.md)
+- [Developer Guide](docs/developer-guide.md)
+
+---
+
 ## ✨ 为什么选择 LangDeep？
 
 LangDeep 基于 **LangChain** 和 **LangGraph** 构建，提供一套以注册表和装饰器为核心的多 Agent 工作流框架。你可以用 `@model`、`@register_tool`、`@agent` 等声明式 API 注册组件，再由 `FlowOrchestrator` 统一完成 Supervisor 路由、Planner 规划、Executor 执行和 Aggregator 聚合。

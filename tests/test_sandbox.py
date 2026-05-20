@@ -1,10 +1,13 @@
 """Unit tests for the sandbox module: SubprocessSandbox, SandboxRegistry, @sandbox."""
 
 import os
+import shutil
+import subprocess
 import tempfile
 
 from langdeep.core.sandbox import (
     BaseSandbox,
+    DockerSandbox,
     SandboxResult,
     SubprocessSandbox,
     SandboxRegistry,
@@ -187,6 +190,99 @@ def test_subprocess_network_access_rejected():
         assert False, "Should have raised SandboxError"
     except SandboxError as exc:
         assert "network" in exc.detail.lower()
+
+
+# ── DockerSandbox ──────────────────────────────────────────────────────────
+
+
+def test_docker_sandbox_builds_container_command(monkeypatch):
+    """DockerSandbox delegates execution to docker run with isolation flags."""
+    captured = {}
+
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/docker")
+
+    def fake_run(cmd, cwd=None, **kwargs):
+        captured["cmd"] = cmd
+        captured["cwd"] = cwd
+        captured["kwargs"] = kwargs
+        with open(os.path.join(cwd, "artifact.txt"), "wb") as f:
+            f.write(b"docker-data")
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    sb = DockerSandbox(image="python:3.12-slim")
+    with tempfile.TemporaryDirectory() as workspace:
+        result = sb.run(
+            "print('ok')",
+            environment={"TOKEN": "secret"},
+            files={"input.txt": b"input"},
+            workspace_dir=workspace,
+        )
+
+    cmd = captured["cmd"]
+    assert cmd[:3] == ["docker", "run", "--rm"]
+    assert "--network" in cmd
+    assert "none" in cmd
+    assert "-w" in cmd
+    assert "/workspace" in cmd
+    assert "-e" in cmd
+    assert "TOKEN=secret" in cmd
+    assert "python:3.12-slim" in cmd
+    assert cmd[-2:] == ["python", "/workspace/run.py"]
+    assert result.stdout.strip() == "ok"
+    assert result.exit_code == 0
+    assert result.artifacts["artifact.txt"] == b"docker-data"
+    assert result.artifacts["input.txt"] == b"input"
+
+
+def test_docker_sandbox_shell_language(monkeypatch):
+    """Shell execution uses bash inside the configured image."""
+    captured = {}
+
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/docker")
+
+    def fake_run(cmd, cwd=None, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="shell\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    sb = DockerSandbox(image="ubuntu:24.04")
+    result = sb.run("echo shell", language="shell", network_access=True)
+
+    assert "--network" not in captured["cmd"]
+    assert captured["cmd"][-2:] == ["bash", "/workspace/run.sh"]
+    assert result.stdout.strip() == "shell"
+
+
+def test_docker_sandbox_unavailable_raises(monkeypatch):
+    """DockerSandbox reports a clear error when Docker CLI is unavailable."""
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+
+    sb = DockerSandbox()
+    try:
+        sb.run("print(1)")
+        assert False, "Should have raised SandboxError"
+    except SandboxError as exc:
+        assert "Docker executable" in exc.detail
+
+
+def test_docker_sandbox_timeout(monkeypatch):
+    """DockerSandbox maps subprocess timeouts to SandboxTimeoutError."""
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/docker")
+
+    def fake_run(cmd, cwd=None, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    sb = DockerSandbox()
+    try:
+        sb.run("print(1)", timeout=1)
+        assert False, "Should have raised SandboxTimeoutError"
+    except SandboxTimeoutError as exc:
+        assert exc.context["timeout"] == 1
 
 
 # ── SandboxRegistry ─────────────────────────────────────────────────────────
