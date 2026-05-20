@@ -8,6 +8,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ISSUE_TEMPLATE_DIR = REPO_ROOT / ".github" / "ISSUE_TEMPLATE"
 PR_TEMPLATE = REPO_ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md"
+WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 DOCS_DIR = REPO_ROOT / "docs"
 
 
@@ -85,6 +86,48 @@ def test_pull_request_template_covers_review_requirements():
 
     assert "python -m pytest" in template
     assert "python -m ruff check" in template
+
+
+def test_release_documentation_is_present():
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    checklist = (REPO_ROOT / "docs" / "release-checklist.md").read_text(encoding="utf-8")
+
+    assert "## [Unreleased]" in changelog
+    assert "## [2.0.13]" in changelog
+    assert "TestPyPI" in checklist
+    assert "trusted publishing" in checklist
+    assert "python -m twine check dist/*" in checklist
+    assert "Rollback" in checklist
+
+
+def test_ci_workflow_includes_coverage_artifact():
+    workflow = yaml.safe_load((WORKFLOW_DIR / "ci.yml").read_text(encoding="utf-8"))
+
+    coverage = workflow["jobs"]["coverage"]
+    assert coverage["name"] == "Coverage"
+    steps = coverage["steps"]
+    assert any("pytest --cov=src" in step.get("run", "") for step in steps)
+    assert any(step.get("uses") == "actions/upload-artifact@v4" for step in steps)
+
+
+def test_publish_workflow_supports_testpypi_and_pypi_trusted_publishing():
+    workflow = yaml.safe_load((WORKFLOW_DIR / "publish.yml").read_text(encoding="utf-8"))
+    on_section = workflow.get("on") or workflow.get(True)
+    jobs = workflow["jobs"]
+
+    assert "workflow_dispatch" in on_section
+    assert on_section["push"]["tags"] == ["v*"]
+    assert {"build", "publish-testpypi", "publish-pypi"} <= set(jobs)
+    assert jobs["publish-testpypi"]["permissions"]["id-token"] == "write"
+    assert jobs["publish-pypi"]["permissions"]["id-token"] == "write"
+
+    testpypi_steps = jobs["publish-testpypi"]["steps"]
+    assert any(
+        step.get("with", {}).get("repository-url") == "https://test.pypi.org/legacy/"
+        for step in testpypi_steps
+    )
+    build_steps = jobs["build"]["steps"]
+    assert any("twine check dist/*" in step.get("run", "") for step in build_steps)
 
 
 def test_docs_index_links_core_documentation_pages():
