@@ -25,7 +25,7 @@ from langdeep.core.decorators.agent import agent
 from langdeep.core.decorators.provider import provider
 from langdeep.core.decorators import memory, cache, im_channel
 from langdeep.core.registry.model_registry import ModelConfig, provider_registry
-from langdeep.core.sandbox import BaseSandbox, SubprocessSandbox, sandbox_registry, sandbox
+from langdeep.core.sandbox import BaseSandbox, DockerSandbox, SubprocessSandbox, sandbox_registry, sandbox
 from langdeep.core.process import ProcessManager, ProcessState
 from langdeep.core.secrets import secrets_manager, EnvSecretsProvider
 from langdeep.core.observability import HealthChecker, MetricsCollector
@@ -172,6 +172,7 @@ __all__ = [
     "normalize_deepseek_messages",
     # Sandbox
     "BaseSandbox",
+    "DockerSandbox",
     "SubprocessSandbox",
     "sandbox_registry",
     "sandbox",

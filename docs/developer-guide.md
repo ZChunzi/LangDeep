@@ -794,10 +794,36 @@ Sandbox support includes:
 
 - `BaseSandbox`
 - `SubprocessSandbox`
+- `DockerSandbox`
 - `sandbox_registry`
 - `@sandbox`
 
 The built-in subprocess sandbox is suitable for trusted or semi-trusted local execution tasks. It is not a complete security boundary for hostile code. Enterprise deployments should use OS/container isolation, resource quotas, network policy, filesystem policy, and audit logging around sandbox usage.
+
+`DockerSandbox` is an opt-in backend that runs code through the local Docker CLI:
+
+```python
+from langdeep import DockerSandbox, sandbox
+
+
+@sandbox(name="docker_python", description="Python execution inside Docker")
+def docker_python():
+    return DockerSandbox(image="python:3.12-slim")
+
+
+result = docker_python().run(
+    "import os; print(os.environ['JOB_ID'])",
+    timeout=10,
+    environment={"JOB_ID": "example-001"},
+    files={"input.txt": b"input"},
+    network_access=False,
+)
+print(result.stdout)
+```
+
+The backend mounts a temporary or supplied `workspace_dir` at `/workspace`, passes environment variables with `docker run -e`, enforces the caller timeout through the host process, and collects newly written files as artifacts. By default it adds `--network none`; pass `network_access=True` only when the selected image and deployment policy allow outbound traffic.
+
+Docker improves isolation compared with direct subprocess execution, but it is not automatically a complete security boundary. Production deployments should pin trusted images, avoid mounting sensitive host paths or the Docker socket, run rootless or least-privilege Docker where possible, configure CPU/memory/pids quotas with `docker_args`, and apply host-level logging and network policy. The backend requires a working Docker CLI and daemon; tests and deployments should skip or mock it when Docker is unavailable.
 
 ## 22. Process Management
 
@@ -1029,6 +1055,7 @@ Recommended minimum production controls:
 - Use explicit `ExecutionPolicy` values for concurrency, retries, and timeout.
 - Validate workflow plans before execution when accepting externally supplied plans.
 - Avoid running untrusted code in `SubprocessSandbox` without additional isolation.
+- Prefer `DockerSandbox` or a remote sandbox for untrusted execution, then harden the container runtime with image pinning, resource quotas, network policy, and minimal host mounts.
 - Add request-level audit logging around user input, selected route, workflow plan, tool usage, and final status.
 - Export `HealthChecker` results to your service health endpoint.
 - Export `MetricsCollector` snapshots or wrap metrics with your standard telemetry system.
@@ -1040,6 +1067,7 @@ Recommended minimum production controls:
 - `ainvoke()` is async-compatible but currently delegates to synchronous `invoke()`.
 - Built-in cache and memory backends are process-local unless replaced.
 - Built-in subprocess sandbox is not sufficient for hostile code isolation.
+- Docker sandboxing depends on the host Docker daemon and its security configuration.
 - Built-in metrics are in-process snapshots, not a replacement for Prometheus/OpenTelemetry.
 - Provider SDK imports happen when corresponding model instances are created.
 
