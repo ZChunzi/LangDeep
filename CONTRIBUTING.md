@@ -105,6 +105,14 @@ README examples must be runnable. If an example requires external services, say 
 5. Fill in the PR template completely.
 6. Wait for maintainer review before expanding scope.
 
+The pull request template is maintained in `.github/PULL_REQUEST_TEMPLATE.md`.
+Use it as a review checklist, not as placeholder text to delete wholesale. A
+ready-to-review PR should include the linked issue, goal, main changes,
+acceptance criteria status, commands actually run, and compatibility, security,
+performance, operations, or rollback risks. If a section does not apply, write
+`N/A` or `无明显风险` so reviewers can distinguish an intentional omission from
+missing context.
+
 ## Commit messages
 
 Use concise Conventional Commit-style messages:
