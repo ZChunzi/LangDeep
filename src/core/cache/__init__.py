@@ -3,18 +3,20 @@
 Provides:
 - BaseCacheBackend — abstract interface for all cache backends
 - MemoryCache — built-in LRU+TTL in-memory cache
+- FileCacheBackend — local file-backed cache for trusted persistent data
 - CacheRegistry — singleton registry for cache backend factories
 - @cache — decorator for registering cache backends
 """
 
 from .base import BaseCacheBackend
-from .builtin import MemoryCache
+from .builtin import FileCacheBackend, MemoryCache
 from .registry import cache_registry, CacheRegistry
 from .decorators import cache
 
 __all__ = [
     "BaseCacheBackend",
     "MemoryCache",
+    "FileCacheBackend",
     "CacheRegistry",
     "cache_registry",
     "cache",

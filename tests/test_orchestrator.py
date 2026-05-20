@@ -11,6 +11,7 @@ from langdeep import FlowOrchestrator, ExecutionPolicy, RoutingStrategy
 from langdeep.core.registry.agent_registry import agent_registry, AgentMetadata
 from langdeep.core.memory import InMemoryBackend, memory_registry
 from langdeep.core.observability import MetricsCollector
+from test_observability import RecordingTracingAdapter
 from langdeep.core.process import ProcessManager, ProcessState
 
 from conftest import clean_registries, populate_minimal_registries, _mock, orch, _last_ai, ToPlanner
@@ -104,6 +105,26 @@ def test_invoke_records_shared_metrics():
 
     o.clear_metrics()
     assert o.get_metrics()["counters"] == {}
+
+
+def test_invoke_records_tracing_spans_for_invoke_nodes_and_model():
+    tracing = RecordingTracingAdapter()
+    o = orch(tracing_adapter=tracing)
+
+    o.invoke("route this request without keyword match")
+
+    names = tracing.names()
+    assert "langdeep.invoke" in names
+    assert "langdeep.node" in names
+    assert "langdeep.model" in names
+    assert any(
+        span["attributes"].get("langdeep.node") == "supervisor"
+        for span in tracing.spans
+    )
+    assert any(
+        span["attributes"].get("langdeep.component") == "router"
+        for span in tracing.spans
+    )
 
 
 def test_invoke_loads_and_stores_memory_by_session_id():

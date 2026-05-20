@@ -1,14 +1,20 @@
 """Unit tests for the observability module: HealthStatus, HealthChecker, MetricsCollector."""
 
 from datetime import datetime
+from contextlib import contextmanager
+
+from langchain_core.tools import tool as lc_tool
 
 from langdeep.core.observability import (
     HealthStatus,
     HealthChecker,
     MetricsCollector,
+    NoOpTracingAdapter,
+    OpenTelemetryTracingAdapter,
     PrometheusMetricsExporter,
     export_prometheus_metrics,
 )
+from langdeep.core.tools import wrap_tool
 
 
 def setup_function():
@@ -187,6 +193,7 @@ def test_metrics_clear():
     assert mc.get_metrics()["histograms"] == {}
 
 
+<<<<<<< HEAD
 # ── Prometheus exporter ─────────────────────────────────────────────────────
 
 
@@ -231,3 +238,79 @@ def test_prometheus_exporter_allows_empty_namespace():
 
     assert "# TYPE requests counter" in output
     assert "requests 1" in output
+
+
+# ── Tracing adapters ────────────────────────────────────────────────────────
+
+
+def test_noop_tracing_adapter_context_manager():
+    adapter = NoOpTracingAdapter()
+
+    with adapter.start_span("test") as span:
+        span.set_attribute("key", "value")
+        span.record_exception(RuntimeError("ignored"))
+
+
+def test_opentelemetry_adapter_falls_back_without_dependency(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "opentelemetry":
+            raise ImportError("missing otel")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    adapter = OpenTelemetryTracingAdapter()
+
+    with adapter.start_span("test") as span:
+        span.set_attribute("ok", True)
+
+
+def test_policy_wrapped_tool_records_trace_span():
+    tracing = RecordingTracingAdapter()
+
+    @lc_tool
+    def echo_tool(text: str) -> str:
+        """Echo text."""
+        return text
+
+    wrapped = wrap_tool(echo_tool, tracing_adapter=tracing)
+
+    assert wrapped.invoke({"text": "hello"}) == "hello"
+    assert tracing.names() == ["langdeep.tool"]
+    assert tracing.spans[0]["attributes"]["langdeep.tool"] == "echo_tool"
+    assert tracing.spans[0]["attributes"]["langdeep.status"] == "success"
+
+
+class RecordingTracingAdapter:
+    def __init__(self):
+        self.spans = []
+
+    @contextmanager
+    def start_span(self, name, attributes=None):
+        span = RecordingSpan(name, dict(attributes or {}))
+        self.spans.append(span.data)
+        try:
+            yield span
+        except Exception as exc:
+            span.record_exception(exc)
+            raise
+        finally:
+            span.data["ended"] = True
+
+    def names(self):
+        return [span["name"] for span in self.spans]
+
+
+class RecordingSpan:
+    def __init__(self, name, attributes):
+        self.data = {"name": name, "attributes": attributes, "exceptions": [], "ended": False}
+
+    def set_attribute(self, key, value):
+        self.data["attributes"][key] = value
+
+    def record_exception(self, exc):
+        self.data["exceptions"].append(type(exc).__name__)
+>>>>>>> origin/main
