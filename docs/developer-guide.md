@@ -4,6 +4,9 @@ Version: `2.0.13`
 
 This guide documents the current LangDeep architecture and APIs as implemented in the repository. It is written for framework users, application engineers, and maintainers who need to build, extend, test, or operate LangDeep-based systems.
 
+For task-oriented documentation, start at [Documentation Index](index.md). This
+developer guide remains the implementation-oriented reference.
+
 ## 1. Project Scope
 
 LangDeep is a Python framework for building multi-agent workflows on top of LangChain and LangGraph. It favors registration-driven application assembly:
@@ -93,13 +96,20 @@ langdeep --version
 langdeep health
 langdeep diagnostics
 langdeep diagnostics --instantiate-agents
+langdeep doctor
+langdeep doctor --strict
+langdeep doctor --format text
 langdeep list
 langdeep list agents
 ```
 
-`health`, `diagnostics`, and `list` print JSON. `health` returns a non-zero
-exit code only when the aggregate status is `unhealthy`; `diagnostics` returns
-a non-zero exit code when configuration errors are found.
+`health`, `diagnostics`, `doctor`, and `list` print JSON by default. `health`
+returns a non-zero exit code only when the aggregate status is `unhealthy`;
+`diagnostics` returns a non-zero exit code when configuration errors are found.
+`doctor` combines diagnostics, health, dependency versions, registry snapshots,
+provider optional dependency checks, sandbox/tool-policy/security warnings, and
+response-cache status. `langdeep doctor --strict` also returns a non-zero exit
+code when warnings are present, making it suitable for stricter CI gates.
 
 ## 5. Registries
 
@@ -321,6 +331,11 @@ def support_agent():
 ```
 
 Agent factories should return a runnable object. LangDeep validates that the created object can be invoked by the orchestration layer.
+The minimal contract is `invoke(state)`, `ainvoke(state)`, or both. Synchronous
+orchestration prefers `invoke(state)` and can bridge async-only agents when no
+event loop is already running. Asynchronous orchestration prefers
+`ainvoke(state)` and falls back to `invoke(state)` for sync-only agents. Agents
+that expose both methods are the most portable across all execution modes.
 
 Agent metadata fields:
 
@@ -607,6 +622,70 @@ Supported retry backoffs:
 - `exponential`
 - `fixed`
 
+Common configurations:
+
+Sequential execution is useful when tasks mutate shared local state, call an API
+with strict ordering requirements, or are easier to debug one at a time:
+
+```python
+from langdeep import ExecutionPolicy
+
+
+sequential_policy = ExecutionPolicy(
+    strategy="sequential",
+    max_concurrency=1,
+    fail_fast=True,
+)
+```
+
+Gather execution is the default shape for independent I/O-bound tasks. Use it
+when ready tasks can run in parallel and only need the dependency graph to
+decide when they become eligible:
+
+```python
+from langdeep import ExecutionPolicy
+
+
+gather_policy = ExecutionPolicy(
+    strategy="gather",
+    max_concurrency=5,
+    fail_fast=False,
+)
+```
+
+Retry configuration is useful for transient provider, network, or sandbox
+failures. `retry_on` matches exception class names, while `max_retries` controls
+the total attempts made by retry-capable task runners:
+
+```python
+from langdeep import ExecutionPolicy
+
+
+retry_policy = ExecutionPolicy(
+    strategy="gather",
+    retry_on=["TimeoutError", "ConnectionError"],
+    max_retries=4,
+    retry_backoff="exponential",
+)
+```
+
+Timeout configuration bounds each async task attempt. Use shorter timeouts for
+interactive chat flows and longer values for background workflows that call slow
+tools:
+
+```python
+from langdeep import ExecutionPolicy
+
+
+timeout_policy = ExecutionPolicy(
+    strategy="gather",
+    timeout_seconds=10.0,
+    retry_on=["TimeoutError"],
+    max_retries=2,
+    retry_backoff="fixed",
+)
+```
+
 Policy objects can be serialized:
 
 ```python
@@ -715,6 +794,22 @@ def session_memory():
 
 If the factory returns `None`, the decorator creates an `InMemoryBackend`.
 
+Use `SQLiteMemoryBackend` for lightweight single-node persistence without
+additional dependencies:
+
+```python
+from langdeep import SQLiteMemoryBackend, memory
+
+
+@memory(name="sqlite_sessions", description="SQLite conversation storage")
+def sqlite_sessions():
+    return SQLiteMemoryBackend(database_path="./langdeep_sessions.sqlite3")
+```
+
+The backend stores serialized message entries in a `memory_entries` table keyed
+by `session_id` and `message_idx`. Repeated `store_messages()` calls append to
+the existing session history.
+
 Custom backends should implement `BaseMemoryBackend`:
 
 - `store_entry(session_id, entry)`
@@ -738,7 +833,8 @@ def llm_cache():
     pass
 ```
 
-If the factory returns `None`, the decorator creates a `MemoryCache`.
+If the factory returns `None`, the decorator creates a `MemoryCache`. LangDeep
+also includes `FileCacheBackend` for trusted local persistent caches.
 
 Custom backends should implement `BaseCacheBackend`:
 
@@ -757,6 +853,16 @@ from langdeep.core.registry.model_registry import model_registry
 model_registry.enable_response_cache(ttl=300, max_entries=1024)
 ```
 
+To persist response cache entries on local disk, pass `disk_path`:
+
+```python
+model_registry.enable_response_cache(
+    ttl=300,
+    max_entries=1024,
+    disk_path=".langdeep-cache/responses",
+)
+```
+
 Then invoke through:
 
 ```python
@@ -769,6 +875,13 @@ the model name, message payload, invocation keyword arguments, and
 component-specific context such as router mode, valid routing targets, bound
 tools, or planner agent lists. Keyword routing and custom non-LLM strategies do
 not use the LLM response cache because they do not make model calls.
+
+Disk response cache entries use `FileCacheBackend`, which serializes values with
+`pickle`. Use it only for trusted local cache directories, do not share it across
+trust boundaries, and do not point it at directories writable by untrusted users.
+Response caching is opt-in because cached LLM outputs can change application
+semantics: repeated calls may return the cached output instead of reflecting a
+new model state, provider rollout, temperature sample, or external tool context.
 
 ## 20. IM Integration
 
@@ -788,10 +901,67 @@ Sandbox support includes:
 
 - `BaseSandbox`
 - `SubprocessSandbox`
+- `DockerSandbox`
 - `sandbox_registry`
 - `@sandbox`
 
-The built-in subprocess sandbox is suitable for trusted or semi-trusted local execution tasks. It is not a complete security boundary for hostile code. Enterprise deployments should use OS/container isolation, resource quotas, network policy, filesystem policy, and audit logging around sandbox usage.
+The built-in subprocess sandbox is suitable for trusted or semi-trusted local
+execution tasks. It is not a complete security boundary for hostile code.
+Enterprise deployments should use OS/container isolation, resource quotas,
+network policy, filesystem policy, and audit logging around sandbox usage.
+
+What `SubprocessSandbox` does:
+
+- runs code in a local child process
+- applies a timeout to the subprocess call
+- rejects Python imports outside an AST-based allowlist
+- applies a best-effort memory limit with `resource.setrlimit` on Linux
+- collects newly created artifacts up to a configured size limit
+- rejects `network_access=True` because it does not implement network isolation
+
+Appropriate examples:
+
+- running trusted generated Python snippets in local development
+- executing deterministic data transformations from application-owned code
+- testing tool output formatting with bounded input files
+- collecting small artifacts from semi-trusted internal workflows
+
+Inappropriate examples:
+
+- executing arbitrary code submitted by public users
+- relying on the import allowlist to stop malicious Python behavior
+- assuming filesystem, process, user, or network isolation beyond the local subprocess
+- passing production secrets, customer data, or privileged workspace paths into the sandbox
+- using it as the only boundary for hostile-code evaluation
+
+For untrusted workloads, use a hardened backend such as a locked-down container,
+VM, or remote execution service with explicit filesystem mounts, network policy,
+CPU/memory quotas, secret isolation, and audit logging.
+
+`DockerSandbox` is an opt-in backend that runs code through the local Docker CLI:
+
+```python
+from langdeep import DockerSandbox, sandbox
+
+
+@sandbox(name="docker_python", description="Python execution inside Docker")
+def docker_python():
+    return DockerSandbox(image="python:3.12-slim")
+
+
+result = docker_python().run(
+    "import os; print(os.environ['JOB_ID'])",
+    timeout=10,
+    environment={"JOB_ID": "example-001"},
+    files={"input.txt": b"input"},
+    network_access=False,
+)
+print(result.stdout)
+```
+
+The backend mounts a temporary or supplied `workspace_dir` at `/workspace`, passes environment variables with `docker run -e`, enforces the caller timeout through the host process, and collects newly written files as artifacts. By default it adds `--network none`; pass `network_access=True` only when the selected image and deployment policy allow outbound traffic.
+
+Docker improves isolation compared with direct subprocess execution, but it is not automatically a complete security boundary. Production deployments should pin trusted images, avoid mounting sensitive host paths or the Docker socket, run rootless or least-privilege Docker where possible, configure CPU/memory/pids quotas with `docker_args`, and apply host-level logging and network policy. The backend requires a working Docker CLI and daemon; tests and deployments should skip or mock it when Docker is unavailable.
 
 ## 22. Process Management
 
@@ -858,6 +1028,32 @@ metrics.gauge("workers", 4)
 metrics.histogram("latency_ms", 120.0)
 snapshot = metrics.get_metrics()
 ```
+
+OpenTelemetry tracing is optional. LangDeep does not require
+`opentelemetry-api` by default; if it is not installed, the adapter records no
+spans and application behavior is unchanged.
+
+```python
+from langdeep import FlowOrchestrator, OpenTelemetryTracingAdapter
+
+
+tracing = OpenTelemetryTracingAdapter()
+orchestrator = FlowOrchestrator(
+    supervisor_model="gpt4o",
+    tracing_adapter=tracing,
+)
+```
+
+When configured, LangDeep records spans for:
+
+- `langdeep.invoke` around `invoke()`, `ainvoke()`, and `astream()`
+- `langdeep.node` around supervisor, planner, executor, aggregator, agent, and custom nodes
+- `langdeep.model` around router, planner, and aggregator model calls
+- `langdeep.tool` around policy-wrapped tool calls
+
+Custom tracing adapters can implement `start_span(name, attributes=None)` as a
+context manager and can return span objects with optional `set_attribute()` and
+`record_exception()` methods.
 
 ## 25. Runtime Diagnostics
 
@@ -1023,6 +1219,7 @@ Recommended minimum production controls:
 - Use explicit `ExecutionPolicy` values for concurrency, retries, and timeout.
 - Validate workflow plans before execution when accepting externally supplied plans.
 - Avoid running untrusted code in `SubprocessSandbox` without additional isolation.
+- Prefer `DockerSandbox` or a remote sandbox for untrusted execution, then harden the container runtime with image pinning, resource quotas, network policy, and minimal host mounts.
 - Add request-level audit logging around user input, selected route, workflow plan, tool usage, and final status.
 - Export `HealthChecker` results to your service health endpoint.
 - Export `MetricsCollector` snapshots or wrap metrics with your standard telemetry system.
@@ -1031,9 +1228,11 @@ Recommended minimum production controls:
 ## 31. Known Boundaries
 
 - Registries are in-process singletons; they are not distributed registries.
-- `ainvoke()` is async-compatible but currently delegates to synchronous `invoke()`.
+- `ainvoke()` uses native async graph or agent APIs when available, and falls back
+  to synchronous methods for sync-only components.
 - Built-in cache and memory backends are process-local unless replaced.
 - Built-in subprocess sandbox is not sufficient for hostile code isolation.
+- Docker sandboxing depends on the host Docker daemon and its security configuration.
 - Built-in metrics are in-process snapshots, not a replacement for Prometheus/OpenTelemetry.
 - Provider SDK imports happen when corresponding model instances are created.
 

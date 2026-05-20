@@ -104,3 +104,27 @@ def test_fastapi_server_example_routes_without_fastapi_dependency(monkeypatch):
         assert "User message: hello from HTTP" in response.reply
     finally:
         clean_registries()
+
+
+def test_customer_service_demo_runs(capsys):
+    clean_registries()
+    example_path = (
+        Path(__file__).resolve().parents[1]
+        / "examples"
+        / "customer_service_demo"
+        / "demo.py"
+    )
+    module = load_module(example_path)
+
+    try:
+        module.main()
+        output = capsys.readouterr().out
+    finally:
+        clean_registries()
+
+    assert "Conversation" in output
+    assert "Order LD-1001" in output
+    assert "Return case CASE-0001 has been opened for LD-1001." in output
+    assert "Memory entries: " in output
+    assert "create_return_case: success=True, confirmed=True, blocked=False" in output
+    assert "customer_service.tool.calls" in output
