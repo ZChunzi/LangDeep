@@ -45,7 +45,7 @@ checkpoints/
 Thumbs.db
 
 # 项目辅助目录 (非框架代码)
-workflows/
+/workflows/
 .agents/
 .codex/
 .ruff_cache/
