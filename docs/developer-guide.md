@@ -883,7 +883,38 @@ Sandbox support includes:
 - `sandbox_registry`
 - `@sandbox`
 
-The built-in subprocess sandbox is suitable for trusted or semi-trusted local execution tasks. It is not a complete security boundary for hostile code. Enterprise deployments should use OS/container isolation, resource quotas, network policy, filesystem policy, and audit logging around sandbox usage.
+The built-in subprocess sandbox is suitable for trusted or semi-trusted local
+execution tasks. It is not a complete security boundary for hostile code.
+Enterprise deployments should use OS/container isolation, resource quotas,
+network policy, filesystem policy, and audit logging around sandbox usage.
+
+What `SubprocessSandbox` does:
+
+- runs code in a local child process
+- applies a timeout to the subprocess call
+- rejects Python imports outside an AST-based allowlist
+- applies a best-effort memory limit with `resource.setrlimit` on Linux
+- collects newly created artifacts up to a configured size limit
+- rejects `network_access=True` because it does not implement network isolation
+
+Appropriate examples:
+
+- running trusted generated Python snippets in local development
+- executing deterministic data transformations from application-owned code
+- testing tool output formatting with bounded input files
+- collecting small artifacts from semi-trusted internal workflows
+
+Inappropriate examples:
+
+- executing arbitrary code submitted by public users
+- relying on the import allowlist to stop malicious Python behavior
+- assuming filesystem, process, user, or network isolation beyond the local subprocess
+- passing production secrets, customer data, or privileged workspace paths into the sandbox
+- using it as the only boundary for hostile-code evaluation
+
+For untrusted workloads, use a hardened backend such as a locked-down container,
+VM, or remote execution service with explicit filesystem mounts, network policy,
+CPU/memory quotas, secret isolation, and audit logging.
 
 `DockerSandbox` is an opt-in backend that runs code through the local Docker CLI:
 
