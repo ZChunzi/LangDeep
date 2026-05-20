@@ -88,6 +88,20 @@ def test_run_exhaust_retries():
     assert "exhausted" in result["error"]
 
 
+def test_run_bridges_async_only_agent():
+    class AsyncOnlyAgent:
+        async def ainvoke(self, state):
+            return {"messages": [AIMessage(content="async from sync")]}
+
+    agent_registry.register("async_only", lambda: AsyncOnlyAgent(), AgentMetadata(
+        name="async_only", description="async only", capabilities=[], routing_keywords=[],
+        model_name="gpt4o",
+    ))
+    runner = RetryTaskRunner(max_retries=1)
+    result = runner.run({"id": "t1", "agent": "async_only"}, [HumanMessage(content="x")], {}, {})
+    assert result == ok("async from sync")
+
+
 def test_inject_context_with_previous_results():
     _register_echo_agent()
     runner = RetryTaskRunner(max_retries=1)
@@ -130,6 +144,24 @@ def test_arun_success():
         return await runner.arun(task, [HumanMessage(content="hello")], {}, {})
     result = asyncio.run(run())
     assert result["success"] is True
+
+
+def test_arun_falls_back_to_sync_only_agent():
+    class SyncOnlyAgent:
+        def invoke(self, state):
+            return {"messages": [AIMessage(content="sync from async")]}
+
+    agent_registry.register("sync_only", lambda: SyncOnlyAgent(), AgentMetadata(
+        name="sync_only", description="sync only", capabilities=[], routing_keywords=[],
+        model_name="gpt4o",
+    ))
+    runner = RetryTaskRunner(max_retries=1)
+
+    async def run():
+        return await runner.arun({"id": "t1", "agent": "sync_only"}, [HumanMessage(content="x")], {}, {})
+
+    result = asyncio.run(run())
+    assert result == ok("sync from async")
 
 
 def test_arun_timeout():
